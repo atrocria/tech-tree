@@ -1,99 +1,544 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import React from "react";
+import {
+	ItemView,
+	Menu,
+	Modal,
+	Notice,
+	Plugin,
+	Setting,
+	SuggestModal,
+	TFile,
+	TFolder,
+	WorkspaceLeaf,
+	type ViewStateResult
+} from "obsidian";
+import { createRoot, type Root } from "react-dom/client";
+import {
+	DEFAULT_BOARD_NAME,
+	TechTreeManager,
+	type CreateTechTreeNodeOptions,
+	getBoardName,
+	isCanvasPath
+} from "./TechTreeManager";
+import { TechTreeApp, TechTreeBoardPicker } from "./TechTreeView";
+import type { TechTreePriority } from "./types";
 
-// Remember to rename these classes and interfaces!
+export const TECH_TREE_VIEW_TYPE = "tech-tree-view";
+const CANVAS_VIEW_TYPE = "canvas";
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+type TechTreeBoardMode = "tech-tree" | "canvas";
+
+export default class TechTreePlugin extends Plugin {
+	private manager!: TechTreeManager;
+	private boardModes = new Map<string, TechTreeBoardMode>();
 
 	async onload() {
-		await this.loadSettings();
+		this.manager = TechTreeManager.getInstance(this.app, this);
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.registerView(
+			TECH_TREE_VIEW_TYPE,
+			(leaf) => new TechTreeItemView(leaf, this.manager, this)
+		);
+
+		this.addRibbonIcon("git-branch", "Open tech tree board", () => {
+			void this.openOrCreateFromRibbon();
 		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
+			id: "create-tech-tree-board",
+			name: "Create tech tree board",
 			callback: () => {
-				new SampleModal(this.app).open();
+				void this.createBoardAndOpen();
 			}
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		this.addCommand({
+			id: "open-tech-tree-board",
+			name: "Open tech tree board",
+			callback: () => {
+				void this.openBoardPicker();
+			}
+		});
+
+		this.addCommand({
+			id: "open-active-canvas-as-tech-tree",
+			name: "Open active canvas as tech tree",
+			checkCallback: (checking) => {
+				const activeFile = this.app.workspace.getActiveFile();
+				const canOpen = Boolean(activeFile && isCanvasPath(activeFile.path));
+
+				if (checking) {
+					return canOpen;
 				}
-				return false;
+
+				if (activeFile) {
+					void this.openBoard(activeFile.path);
+				}
+
+				return true;
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file, _source, leaf) => {
+				this.addFileMenuItems(menu, file, leaf);
+			})
+		);
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				void this.handleFileOpen(file);
+			})
+		);
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				if (file instanceof TFile) {
+					void this.manager.handleCanvasModified(file);
+				}
+			})
+		);
 
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				if (file instanceof TFile) {
+					this.manager.handleCanvasRenamed(file, oldPath);
+					this.updateRenamedViews(file.path, oldPath);
+				}
+			})
+		);
 	}
 
 	onunload() {
+		this.boardModes.clear();
+		this.manager.dispose();
 	}
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+	async createBoardAndOpen(folder?: TFolder, leaf?: WorkspaceLeaf | null, name = DEFAULT_BOARD_NAME) {
+		const file = await this.manager.createBoardFile(folder, name);
+		await this.openBoard(file.path, leaf);
+		new Notice(`Created ${getBoardName(file.path)}.`);
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
+	async openOrCreateFromRibbon(): Promise<void> {
+		await this.openBoardPicker();
+	}
+
+	async openBoardPicker(leaf?: WorkspaceLeaf | null): Promise<void> {
+		const boards = await this.manager.getBoardFiles();
+
+		new TechTreeBoardSuggestModal(this, boards, leaf).open();
+	}
+
+	async openBoard(path: string, leaf?: WorkspaceLeaf | null) {
+		const file = this.manager.getCanvasFile(path);
+
+		if (!file || !await this.manager.isTechTreeCanvasFile(file)) {
+			new Notice("Add a text node with priority: goal to open this canvas as a tech tree.");
+			return;
+		}
+
+		const targetLeaf = leaf ?? this.findOpenBoardLeaf(path) ?? this.app.workspace.getLeaf("tab");
+		this.setBoardMode(targetLeaf, path, "tech-tree");
+
+		await targetLeaf.setViewState({
+			type: TECH_TREE_VIEW_TYPE,
+			state: { file: path },
+			active: true
+		});
+
+		await this.app.workspace.revealLeaf(targetLeaf);
+	}
+
+	async openCanvasView(path: string, leaf?: WorkspaceLeaf | null): Promise<void> {
+		const targetLeaf = leaf ?? this.app.workspace.getLeaf("tab");
+		this.setBoardMode(targetLeaf, path, "canvas");
+
+		await targetLeaf.setViewState({
+			type: CANVAS_VIEW_TYPE,
+			state: { file: path },
+			active: true
+		});
+
+		await this.app.workspace.revealLeaf(targetLeaf);
+	}
+
+	private addFileMenuItems(menu: Menu, file: unknown, leaf?: WorkspaceLeaf) {
+		if (file instanceof TFolder) {
+			menu.addItem((item) => {
+				item
+					.setSection("action-primary")
+					.setTitle("New tech tree board")
+					.setIcon("git-branch")
+					.onClick(() => {
+						void this.createBoardAndOpen(file);
+					});
+			});
+			return;
+		}
+
+		if (!(file instanceof TFile) || !isCanvasPath(file.path)) {
+			return;
+		}
+
+		menu.addItem((item) => {
+			item
+				.setSection("pane")
+				.setTitle("Open as tech tree")
+				.setIcon("git-branch")
+				.onClick(() => {
+					void this.openBoard(file.path, leaf);
+				});
+		});
+	}
+
+	private findOpenBoardLeaf(path: string): WorkspaceLeaf | null {
+		let boardLeaf: WorkspaceLeaf | null = null;
+
+		this.app.workspace.iterateRootLeaves((leaf) => {
+			const state = leaf.view.getState();
+
+			if (!boardLeaf && leaf.view.getViewType() === TECH_TREE_VIEW_TYPE && state.file === path) {
+				boardLeaf = leaf;
+			}
+		});
+
+		return boardLeaf;
+	}
+
+	private updateRenamedViews(newPath: string, oldPath: string): void {
+		this.app.workspace.getLeavesOfType(TECH_TREE_VIEW_TYPE).forEach((leaf) => {
+			const view = leaf.view;
+
+			if (view instanceof TechTreeItemView) {
+				view.handleRename(newPath, oldPath);
+			}
+		});
+	}
+
+	private async handleFileOpen(file: TFile | null): Promise<void> {
+		if (!(file instanceof TFile) || !isCanvasPath(file.path)) {
+			return;
+		}
+
+		const activeLeaf = this.app.workspace.getLeaf(false);
+
+		if (activeLeaf && this.getBoardMode(activeLeaf, file.path) === "canvas") {
+			return;
+		}
+
+		if (!await this.manager.isTechTreeCanvasFile(file)) {
+			return;
+		}
+
+		if (activeLeaf?.view.getViewType() === TECH_TREE_VIEW_TYPE) {
+			return;
+		}
+
+		void this.openBoard(file.path, activeLeaf);
+	}
+
+	private getBoardMode(leaf: WorkspaceLeaf, path: string): TechTreeBoardMode | undefined {
+		return this.boardModes.get(getBoardModeKey(leaf, path));
+	}
+
+	private setBoardMode(leaf: WorkspaceLeaf, path: string, mode: TechTreeBoardMode): void {
+		this.boardModes.set(getBoardModeKey(leaf, path), mode);
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
+class TechTreeItemView extends ItemView {
+	private root: Root | null = null;
+	private boardPath: string | null = null;
+
+	constructor(
+		leaf: WorkspaceLeaf,
+		private readonly manager: TechTreeManager,
+		private readonly plugin: TechTreePlugin
+	) {
+		super(leaf);
+		this.navigation = true;
 	}
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
+	getViewType() {
+		return TECH_TREE_VIEW_TYPE;
 	}
 
-	onClose() {
-		const {contentEl} = this;
+	getDisplayText() {
+		return this.boardPath ? getBoardName(this.boardPath) : "Tech tree";
+	}
+
+	getIcon() {
+		return "git-branch";
+	}
+
+	getState(): Record<string, unknown> {
+		return {
+			...super.getState(),
+			file: this.boardPath
+		};
+	}
+
+	async setState(state: unknown, result: ViewStateResult): Promise<void> {
+		if (state && typeof state === "object" && "file" in state && typeof state.file === "string") {
+			this.boardPath = state.file;
+		} else {
+			this.boardPath = null;
+		}
+
+		await super.setState(state, result);
+		this.render();
+	}
+
+	async onOpen() {
+		this.contentEl.empty();
+		this.contentEl.addClass("tech-tree-view-container");
+		this.addAction("plus-circle", "Add tech tree node", () => {
+			this.openAddNodeModal();
+		});
+		this.addAction("layout-dashboard", "Open canvas view", () => {
+			this.openCanvasView();
+		});
+		this.addAction("folder-open", "Open tech tree board", () => {
+			void this.plugin.openBoardPicker(this.leaf);
+		});
+		this.render();
+	}
+
+	async onClose() {
+		this.root?.unmount();
+		this.root = null;
+		this.contentEl.removeClass("tech-tree-view-container");
+	}
+
+	handleRename(newPath: string, oldPath: string): void {
+		if (this.boardPath !== oldPath) {
+			return;
+		}
+
+		this.boardPath = newPath;
+		this.render();
+	}
+
+	private render(): void {
+		if (!this.root) {
+			this.root = createRoot(this.contentEl);
+		}
+
+		this.root.render(
+			React.createElement(
+				React.StrictMode,
+				null,
+				this.boardPath && isCanvasPath(this.boardPath)
+					? React.createElement(TechTreeApp, {
+						boardPath: this.boardPath,
+						manager: this.manager
+					})
+					: React.createElement(TechTreeBoardPicker, {
+						boards: this.manager.getKnownBoardFiles().map((file) => ({
+							name: getBoardName(file.path),
+							path: file.path
+						})),
+						onCreateBoard: (name?: string) => {
+							void this.plugin.createBoardAndOpen(undefined, this.leaf, name);
+						},
+						onOpenBoard: (path: string) => {
+							void this.plugin.openBoard(path, this.leaf);
+						}
+					})
+			)
+		);
+	}
+
+	private openCanvasView(): void {
+		if (!this.boardPath) {
+			new Notice("Open a tech tree board first.");
+			return;
+		}
+
+		void this.plugin.openCanvasView(this.boardPath, this.leaf);
+	}
+
+	private openAddNodeModal(): void {
+		if (!this.boardPath) {
+			new Notice("Open a tech tree board first.");
+			return;
+		}
+
+		const boardPath = this.boardPath;
+		new TechTreeAddNodeModal(this.plugin, (options) => this.manager.addNodeToBoard(boardPath, options)).open();
+	}
+}
+
+type TechTreeBoardSuggestion =
+	| { type: "board"; file: TFile }
+	| { type: "create"; name: string };
+
+class TechTreeBoardSuggestModal extends SuggestModal<TechTreeBoardSuggestion> {
+	constructor(
+		private readonly plugin: TechTreePlugin,
+		private readonly boards: TFile[],
+		private readonly leaf?: WorkspaceLeaf | null
+	) {
+		super(plugin.app);
+		this.setPlaceholder("Choose a tech tree canvas");
+		this.emptyStateText = "Type a board name to create it.";
+	}
+
+	getSuggestions(query: string): TechTreeBoardSuggestion[] {
+		const trimmedQuery = query.trim();
+		const lowerQuery = trimmedQuery.toLowerCase();
+		const matchingBoards = this.boards
+			.filter((file) => {
+				if (!lowerQuery) {
+					return true;
+				}
+
+				return `${getBoardName(file.path)} ${getBoardDisplayPath(file.path)}`
+					.toLowerCase()
+					.includes(lowerQuery);
+			})
+			.map<TechTreeBoardSuggestion>((file) => ({ type: "board", file }));
+
+		if (!trimmedQuery || this.hasExactBoardName(trimmedQuery)) {
+			return matchingBoards;
+		}
+
+		return [{ type: "create", name: trimmedQuery }, ...matchingBoards];
+	}
+
+	renderSuggestion(suggestion: TechTreeBoardSuggestion, el: HTMLElement): void {
+		if (suggestion.type === "create") {
+			appendSuggestionText(el, `Create "${suggestion.name}"`, "New tech tree board");
+			return;
+		}
+
+		appendSuggestionText(el, getBoardName(suggestion.file.path), getBoardDisplayPath(suggestion.file.path));
+	}
+
+	onChooseSuggestion(suggestion: TechTreeBoardSuggestion): void {
+		this.close();
+
+		if (suggestion.type === "create") {
+			void this.plugin.createBoardAndOpen(undefined, this.leaf, suggestion.name);
+			return;
+		}
+
+		void this.plugin.openBoard(suggestion.file.path, this.leaf);
+	}
+
+	private hasExactBoardName(name: string): boolean {
+		const lowerName = name.toLowerCase();
+
+		return this.boards.some((file) => (
+			getBoardName(file.path).toLowerCase() === lowerName
+			|| getBoardDisplayPath(file.path).toLowerCase() === lowerName
+		));
+	}
+}
+
+class TechTreeAddNodeModal extends Modal {
+	private priority: TechTreePriority = "quest";
+	private text = "New note(What must be true before this works?)";
+
+	constructor(
+		plugin: TechTreePlugin,
+		private readonly onSubmit: (options: CreateTechTreeNodeOptions) => Promise<unknown>
+	) {
+		super(plugin.app);
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("tech-tree-add-node-modal");
+		contentEl.createEl("h2", { text: "Add tech tree node" });
+
+		new Setting(contentEl)
+			.setName("Priority")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("quest", "Quest")
+					.addOption("medium impact", "Medium impact")
+					.addOption("necessary", "Necessary")
+					.addOption("goal", "Goal")
+					.setValue(this.priority)
+					.onChange((value) => {
+						this.priority = value as TechTreePriority;
+					});
+			});
+
+		new Setting(contentEl)
+			.setName("Text")
+			.addTextArea((textArea) => {
+				textArea
+					.setValue(this.text)
+					.onChange((value) => {
+						this.text = value;
+					});
+				textArea.inputEl.rows = 6;
+				textArea.inputEl.addClass("tech-tree-add-node-modal__text");
+			});
+
+		new Setting(contentEl)
+			.addButton((button) => {
+				button
+					.setButtonText("Add node")
+					.setCta()
+					.onClick(() => {
+						void this.submit();
+					});
+			})
+			.addButton((button) => {
+				button
+					.setButtonText("Cancel")
+					.onClick(() => this.close());
+			});
 	}
+
+	private async submit(): Promise<void> {
+		if (!this.text.trim()) {
+			new Notice("Add node text first.");
+			return;
+		}
+
+		try {
+			await this.onSubmit({
+				priority: this.priority,
+				text: this.text
+			});
+			this.close();
+		} catch (error) {
+			console.error("Failed to add tech tree node", error);
+			new Notice("Unable to add tech tree node.");
+		}
+	}
+}
+
+function appendSuggestionText(el: HTMLElement, title: string, note: string): void {
+	const titleEl = document.createElement("div");
+	titleEl.className = "tech-tree-suggest__title";
+	titleEl.textContent = title;
+	el.appendChild(titleEl);
+
+	const noteEl = document.createElement("small");
+	noteEl.className = "tech-tree-suggest__note";
+	noteEl.textContent = note;
+	el.appendChild(noteEl);
+}
+
+function getBoardDisplayPath(path: string): string {
+	const parts = path.split("/");
+	const fileName = parts.pop();
+	const displayFileName = `${getBoardName(path)}.canvas`;
+
+	return [...parts, fileName ? displayFileName : path].join("/");
+}
+
+function getBoardModeKey(leaf: WorkspaceLeaf, path: string): string {
+	return `${getLeafId(leaf) ?? "path"}:${path}`;
+}
+
+function getLeafId(leaf: WorkspaceLeaf): string | undefined {
+	return (leaf as WorkspaceLeaf & { id?: string }).id;
 }

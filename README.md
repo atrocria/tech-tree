@@ -1,90 +1,120 @@
-# Obsidian Sample Plugin
+# Tech Tree
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Tech Tree is an Obsidian plugin for planning goals as connected canvas boards. It turns regular Obsidian `.canvas` files into progress maps where each text node can be a goal, necessary step, or quest, and where completion state unlocks the next useful work.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+Unlike a conventional tech tree or tree graph that usually starts with raw steps and branches forward, Tech Tree works backward from the desired outcome. It treats a goal like something you can reverse engineer: start with the final product, break it into necessary ingredients, then keep decomposing those ingredients into smaller quests. The idea is inspired by first principles thinking, game crafting recipes, and skill trees.
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+That means a board is not just a hierarchy. One node can support several future nodes, overlap with other branches, or become reusable material for another part of the tree. It is closer to merging recipes together until the final product becomes achievable: part crafting tree, part skill tree, part goal map.
 
-## First time developing plugins?
+The plugin keeps its data in the canvas file itself. Node metadata such as `priority`, `connections`, and `status` is stored in text nodes, so boards remain local vault files and can still be opened in Obsidian's native Canvas view.
 
-Quick starting guide for new plugin devs:
+## What it does
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
-
-## Releasing new releases
-
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
-
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+- Creates tech tree boards from the ribbon, command palette, or folder menu.
+- Opens existing `.canvas` files as tech trees when they contain a text node with `priority: goal`.
+- Lets you add, move, resize, edit, complete, connect, reverse, and remove nodes in a dedicated tech tree view.
+- Supports priorities for `goal`, `necessary`, and `quest` nodes.
+- Tracks progress with `open`, `locked`, and `done` states.
+- Locks downstream work until its prerequisites are complete.
+- Provides a quest view that flips the tree so actionable steps toward the goal are right in front of you.
+- Saves changes back into the underlying Obsidian canvas file.
 
 ## How to use
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+Select the git-branch ribbon icon or run **Create tech tree board** from the command palette to create a new board.
 
-## Manually installing the plugin
+To open an existing canvas as a tech tree, add a text node containing:
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+```text
+priority: goal
 
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+Your goal
 ```
 
-If you have multiple URLs, you can also do:
+Then run **Open tech tree board**, use the file menu action **Open as tech tree**, or open the canvas directly. Tech Tree will recognize the board and open it in the tech tree view.
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
+Inside a board:
+
+- Double-click empty space to create a node.
+- Edit node text directly in the node body.
+- Use the priority selector to mark nodes as goals, necessary steps, or quests.
+- Select the checkbox to mark a node done.
+- Drag handles between nodes to create dependencies.
+- Select an edge to reverse or remove it.
+- Use the view actions to add a node, open the native canvas view, or switch boards.
+
+## Node metadata
+
+Tech Tree uses a small metadata block at the top of canvas text nodes:
+
+```text
+priority: quest
+status: open
+
+Write the actual note text here.
 ```
 
-## API Documentation
+Supported priorities:
 
-See https://docs.obsidian.md
+- `goal`: the outcome the tree is working toward. A board should have one goal.
+- `necessary`: required ingredients that must be true for the goal.
+- `quest`: actionable steps, experiments, or reusable work that can unlock progress.
+
+Tech Tree also writes `connections` metadata so dependency lines can survive round trips through the canvas file.
+
+## Installation
+
+### Manual install
+
+1. Download `manifest.json`, `main.js`, and `styles.css` from a release.
+2. Copy them into your vault at `.obsidian/plugins/tech-tree/`.
+3. Reload Obsidian.
+4. Enable **Tech Tree** under **Settings -> Community plugins**.
+
+### Development install
+
+```bash
+npm install
+npm run dev
+```
+
+For local testing, place this repository inside your vault at:
+
+```text
+.obsidian/plugins/tech-tree/
+```
+
+Then reload Obsidian and enable the plugin.
+
+## Building
+
+```bash
+npm run build
+```
+
+The production build writes `main.js` at the repository root. Release assets are:
+
+- `manifest.json`
+- `main.js`
+- `styles.css`
+
+## Development notes
+
+- Source code lives in `src/`.
+- `main.js`, `node_modules/`, `.npm-cache/`, local plugin data, and hot-reload markers are ignored.
+- The plugin is desktop-only while it depends on the current canvas-oriented UI.
+- The plugin does not make network requests or send vault data anywhere.
+
+## Release checklist
+
+1. Update `version` in `manifest.json`.
+2. Update `versions.json` with the matching minimum Obsidian version.
+3. Run `npm run build`.
+4. Create a GitHub release with a tag that exactly matches the manifest version, without a leading `v`.
+5. Attach `manifest.json`, `main.js`, and `styles.css` as release assets.
+
+You can use `npm version patch`, `npm version minor`, or `npm version major` after manually confirming `minAppVersion`; the version script updates `manifest.json` and `versions.json`.
+
+## Privacy
+
+Tech Tree stores all board data in your vault's `.canvas` files. It does not collect analytics, call third-party services, or transmit vault contents.

@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "tech-tree",
+	"name": "Tech Tree",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"description": "Plan goals as unlockable tech tree boards using Obsidian Canvas files.",
+	"author": "atrocria",
+	"authorUrl": "https://devlog.normmallys.workers.dev/",
+	"fundingUrl": "https://buymeacoffee.com/junh",
+	"isDesktopOnly": true
 }

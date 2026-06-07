@@ -1,8 +1,1009 @@
-/*
+.tech-tree-view-container {
+	height: 100%;
+	padding: 0;
+	overflow: hidden;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.tech-tree-shell {
+	/* Change palette, dotted-line thickness, and dash spacing here. */
+	--tech-tree-progress: #f97316;
+	--tech-tree-done: #22c55e;
+	--tech-tree-edge: #7c8490;
+	--tech-tree-quest: #60a5fa;
+	--tech-tree-necessary-path: #22c55e;
+	--tech-tree-soft-glow: rgba(255, 255, 255, 0.5);
+	--tech-tree-dotted-line-width: 3px;
+	--tech-tree-dotted-edge-pattern: 1 9;
+	--tech-tree-canvas: #1f2124;
+	--tech-tree-card: #24282e;
+	--tech-tree-card-hover: #2a3038;
+	--tech-tree-card-text: #f2f5f8;
+	--tech-tree-muted-text: #a5adba;
+	width: 100%;
+	height: 100%;
+	position: relative;
+	background: var(--tech-tree-canvas);
+	color: var(--text-normal);
+}
 
-If your plugin does not need CSS, delete this file.
+.tech-tree-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	padding: 24px;
+	background: var(--background-primary);
+	color: var(--text-muted);
+}
 
-*/
+.tech-tree-picker__panel {
+	width: min(560px, 100%);
+	max-height: min(620px, calc(100vh - 120px));
+	padding: 18px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+	background: var(--background-secondary);
+	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+	overflow: hidden;
+}
+
+.tech-tree-picker__panel h2 {
+	margin: 0 0 12px;
+	color: var(--text-normal);
+	font-size: 20px;
+	font-weight: 650;
+}
+
+.tech-tree-picker__search {
+	width: 100%;
+	margin-bottom: 10px;
+}
+
+.tech-tree-picker__list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-height: min(480px, calc(100vh - 220px));
+	padding-right: 4px;
+	overflow-y: auto;
+}
+
+.tech-tree-picker__item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	width: 100%;
+	padding: 10px 12px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 8px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	text-align: left;
+	transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.tech-tree-picker__item--create {
+	margin-bottom: 8px;
+	border-color: rgba(249, 115, 22, 0.42);
+}
+
+.tech-tree-picker__item:hover,
+.tech-tree-picker__item:focus-visible {
+	border-color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
+	transform: translateY(-1px);
+}
+
+.tech-tree-picker__item small {
+	margin-top: 2px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.tech-tree-picker__empty {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.tech-tree-picker__empty p {
+	margin: 0;
+}
+
+.tech-tree-suggest__title {
+	color: var(--text-normal);
+	font-weight: 600;
+}
+
+.tech-tree-suggest__note {
+	display: block;
+	margin-top: 2px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.tech-tree-add-node-modal__text {
+	width: 100%;
+	min-height: 120px;
+	resize: vertical;
+}
+
+.tech-tree-mode-toggle {
+	position: absolute;
+	top: 14px;
+	left: 50%;
+	z-index: 20;
+	transform: translateX(-50%);
+	pointer-events: auto;
+}
+
+.tech-tree-mode-toggle label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 34px;
+	padding: 6px 12px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 8px;
+	background: rgba(36, 40, 46, 0.92);
+	color: var(--tech-tree-card-text);
+	font-size: 13px;
+	font-weight: 650;
+	line-height: 1;
+	box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+	backdrop-filter: blur(8px);
+	cursor: pointer;
+}
+
+.tech-tree-mode-toggle label.is-disabled {
+	opacity: 0.58;
+	cursor: default;
+}
+
+.tech-tree-mode-toggle input {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	accent-color: var(--tech-tree-progress);
+	cursor: pointer;
+}
+
+.tech-tree-mode-toggle label.is-disabled input {
+	cursor: default;
+}
+
+.react-flow {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	direction: ltr;
+}
+
+.react-flow__container,
+.react-flow__renderer,
+.react-flow__zoompane,
+.react-flow__selectionpane,
+.react-flow__viewport {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+}
+
+.react-flow__renderer {
+	z-index: 4;
+}
+
+.react-flow__zoompane {
+	z-index: 1;
+}
+
+.react-flow__selectionpane {
+	z-index: 5;
+}
+
+.react-flow__viewport {
+	z-index: 2;
+	pointer-events: none;
+	transform-origin: 0 0;
+}
+
+.react-flow__pane {
+	z-index: 1;
+	cursor: grab;
+}
+
+.react-flow__pane.dragging {
+	cursor: grabbing;
+}
+
+.react-flow__edges {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.react-flow__edges svg {
+	position: absolute;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.react-flow__nodes {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 2;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
+
+.react-flow__edge {
+	pointer-events: visibleStroke;
+}
+
+.react-flow__edge-path,
+.react-flow__connection-path {
+	stroke: var(--tech-tree-edge);
+	stroke-width: 2.5;
+	fill: none;
+}
+
+/* Edge body scenarios. Arrow-head colors are configured in EDGE_MARKER_COLORS in src/TechTreeView.tsx. */
+.react-flow__edge.tech-tree-edge.is-progress .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-complete-pending .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-undone-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-chain .react-flow__edge-path {
+	stroke-width: var(--tech-tree-dotted-line-width);
+	stroke-dasharray: var(--tech-tree-dotted-edge-pattern);
+	stroke-linecap: round;
+	opacity: 0.92;
+}
+
+.react-flow__edge.tech-tree-edge.is-progress .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-chain .react-flow__edge-path {
+	stroke: var(--tech-tree-progress);
+}
+
+.react-flow__edge.tech-tree-edge.is-complete-pending .react-flow__edge-path {
+	stroke: var(--tech-tree-necessary-path);
+}
+
+.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path {
+	stroke: var(--tech-tree-quest);
+}
+
+.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-undone-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path {
+	stroke: var(--tech-tree-edge);
+}
+
+.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path {
+	stroke: var(--tech-tree-quest);
+	stroke-width: 3;
+	stroke-dasharray: none;
+	stroke-linecap: butt;
+	opacity: 1;
+}
+
+.react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path {
+	stroke: var(--tech-tree-done);
+	stroke-width: 3;
+	stroke-dasharray: none;
+	stroke-linecap: butt;
+	opacity: 1;
+}
+
+.react-flow__edge.tech-tree-edge.is-necessary-complete .react-flow__edge-path {
+	stroke: var(--tech-tree-done);
+	stroke-width: 3;
+	stroke-dasharray: none;
+	stroke-linecap: butt;
+	opacity: 1;
+}
+
+.react-flow__edge.tech-tree-edge.is-necessary-path {
+	z-index: 5000;
+}
+
+.react-flow__edge.tech-tree-edge.is-necessary-chain {
+	z-index: 4000;
+	filter: drop-shadow(0 0 5px var(--tech-tree-soft-glow));
+}
+
+.react-flow__edge.tech-tree-edge.is-necessary-complete {
+	z-index: 6000;
+}
+
+.react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path {
+	filter: drop-shadow(0 0 6px rgba(249, 115, 22, 0.4)) drop-shadow(0 0 10px rgba(34, 197, 94, 0.28));
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+	stroke-width: 4;
+	filter: drop-shadow(0 0 5px rgba(165, 173, 186, 0.45));
+}
+
+.react-flow__edgeupdater {
+	cursor: grab;
+	fill: transparent;
+	stroke: transparent;
+	stroke-width: 2;
+	transition: fill 120ms ease, stroke 120ms ease;
+}
+
+.react-flow__edge:hover .react-flow__edgeupdater,
+.react-flow__edge.selected .react-flow__edgeupdater,
+.react-flow__edge.updating .react-flow__edgeupdater {
+	fill: rgba(165, 173, 186, 0.18);
+	stroke: rgba(165, 173, 186, 0.72);
+}
+
+.react-flow__edgeupdater:hover {
+	cursor: grabbing;
+	fill: rgba(249, 115, 22, 0.2);
+	stroke: var(--tech-tree-progress);
+}
+
+.react-flow__edge.is-hover-source .react-flow__edgeupdater-source,
+.react-flow__edge.is-hover-target .react-flow__edgeupdater-target {
+	fill: rgba(96, 165, 250, 0.22);
+	stroke: rgba(147, 197, 253, 0.95);
+	filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.72));
+}
+
+.react-flow__node {
+	position: absolute;
+	box-sizing: border-box;
+	cursor: default;
+	pointer-events: all;
+	user-select: none;
+	transform-origin: 0 0;
+}
+
+.react-flow__node.dragging {
+	cursor: grabbing;
+}
+
+.react-flow__handle {
+	position: absolute;
+	z-index: 5;
+	width: 20px;
+	height: 20px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	pointer-events: all;
+	cursor: crosshair;
+	opacity: 1;
+}
+
+.react-flow__handle-left {
+	top: 50%;
+	left: -10px;
+	transform: translateY(-50%);
+}
+
+.react-flow__handle-right {
+	top: 50%;
+	right: -10px;
+	transform: translateY(-50%);
+}
+
+.react-flow__handle-top {
+	top: -10px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+
+.react-flow__handle-bottom {
+	bottom: -10px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+
+.react-flow__handle::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 10px;
+	height: 10px;
+	border: 1px solid var(--tech-tree-canvas);
+	border-radius: 999px;
+	background: #7c8490;
+	opacity: 0;
+	transform: translate(-50%, -50%);
+	transition: opacity 120ms ease, background 120ms ease;
+}
+
+.react-flow__node:hover .react-flow__handle::after,
+.react-flow__handle:hover::after,
+.react-flow__handle.connectingfrom::after,
+.react-flow__handle.connectingto::after,
+.react-flow__handle.valid::after {
+	opacity: 0.9;
+}
+
+.react-flow__handle-valid {
+	background: transparent;
+}
+
+.react-flow__handle-valid::after,
+.react-flow__handle.valid::after {
+	background: var(--tech-tree-progress);
+}
+
+.tech-tree-port {
+	background: transparent;
+	opacity: 1;
+}
+
+.react-flow__controls {
+	display: flex;
+	flex-direction: column;
+	box-shadow: var(--shadow-s);
+}
+
+.react-flow__controls-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	padding: 4px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	background: #2a2d31;
+	color: var(--text-normal);
+}
+
+.react-flow__minimap {
+	background: #23262a;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.react-flow__attribution {
+	display: none;
+}
+
+.tech-tree-node {
+	--tech-tree-node-border-color: transparent;
+	--tech-tree-node-border-width: 3px;
+	--tech-tree-node-fill: var(--tech-tree-card);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-width: 320px;
+	min-height: 170px;
+	padding: 10px 16px 16px 34px;
+	border: var(--tech-tree-node-border-width) solid var(--tech-tree-node-border-color);
+	border-radius: 10px;
+	background: var(--tech-tree-node-fill);
+	color: var(--tech-tree-card-text);
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+	overflow: hidden;
+	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control) {
+	position: relative;
+	z-index: 2;
+}
+
+.tech-tree-node.is-locked {
+	opacity: 1;
+	cursor: default;
+}
+
+.tech-tree-node.is-locked::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	border-radius: inherit;
+	background: rgba(17, 19, 24, 0.18);
+	backdrop-filter: blur(2px);
+	pointer-events: none;
+}
+
+.tech-tree-node.is-locked > :not(.tech-tree-node__lock) {
+	filter: blur(1.2px);
+}
+
+.tech-tree-node.is-locked .tech-tree-node__lock {
+	filter: none;
+	z-index: 20;
+}
+
+.tech-tree-node.is-locked .react-flow__handle,
+.tech-tree-node.is-locked .tech-tree-node__done,
+.tech-tree-node.is-locked .tech-tree-node__priority,
+.tech-tree-node.is-locked .tech-tree-note,
+.tech-tree-node.is-locked .tech-tree-node__resize-handle {
+	pointer-events: none;
+}
+
+.tech-tree-node:hover {
+	--tech-tree-node-fill: var(--tech-tree-card-hover);
+	background: var(--tech-tree-node-fill);
+}
+
+.tech-tree-node.is-locked:hover {
+	--tech-tree-node-fill: var(--tech-tree-card);
+	background: var(--tech-tree-node-fill);
+}
+
+.tech-tree-node.has-checked-neighbor {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.22), 0 0 20px rgba(249, 115, 22, 0.22), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-completed {
+	--tech-tree-node-border-color: var(--tech-tree-done);
+	--tech-tree-node-fill: #2b2825;
+	background: var(--tech-tree-node-fill);
+	color: var(--tech-tree-card-text);
+	box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(0, 0, 0, 0.3);
+	opacity: 1;
+}
+
+.tech-tree-node.is-priority-quest.is-unlocked:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-quest);
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-priority-quest.is-locked:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-quest);
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+}
+
+.tech-tree-node.is-priority-quest.is-locked.has-quest-prerequisite:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-edge);
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+	box-shadow: 0 0 0 2px rgba(165, 173, 186, 0.14), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-priority-quest.is-completed {
+	--tech-tree-node-border-color: var(--tech-tree-quest);
+	--tech-tree-node-fill: #202a34;
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+	background: var(--tech-tree-node-fill);
+	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2), 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.tech-tree-node.is-priority-necessary.is-unlocked:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-priority-necessary.is-unlocked.has-checked-neighbor:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	border-style: solid;
+	border-width: var(--tech-tree-dotted-line-width);
+	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.32), 0 0 22px rgba(249, 115, 22, 0.34), 0 0 36px rgba(249, 115, 22, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-priority-necessary.is-locked:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	border-style: dotted;
+	border-width: var(--tech-tree-dotted-line-width);
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 0 18px rgba(255, 255, 255, 0.14), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node__header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: calc(100% + 24px);
+	min-height: 32px;
+	margin-left: -24px;
+}
+
+.tech-tree-node__drag-handle {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 30px;
+	color: rgba(165, 173, 186, 0.36);
+	cursor: grab;
+	touch-action: none;
+	transition: color 120ms ease, transform 120ms ease;
+}
+
+.tech-tree-node__drag-handle:hover,
+.react-flow__node.selected .tech-tree-node__drag-handle {
+	color: rgba(165, 173, 186, 0.72);
+}
+
+.tech-tree-node__drag-handle:active {
+	cursor: grabbing;
+	transform: translateY(1px);
+}
+
+.tech-tree-node.is-locked .tech-tree-node__drag-handle {
+	cursor: grab;
+	pointer-events: all;
+}
+
+.tech-tree-node__drag-icon {
+	width: 24px;
+	height: 24px;
+}
+
+.tech-tree-node__done {
+	position: relative;
+	display: inline-flex;
+	flex: 0 0 30px;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	aspect-ratio: 1;
+	margin-left: auto;
+	cursor: pointer;
+}
+
+.tech-tree-node__done input {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.tech-tree-node__done input:disabled {
+	cursor: default;
+}
+
+.tech-tree-node__done span {
+	position: relative;
+	width: 20px;
+	height: 20px;
+	border: 2px solid var(--tech-tree-muted-text);
+	border-radius: 6px;
+	background: rgba(0, 0, 0, 0.18);
+	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.tech-tree-node__done input:checked + span {
+	border-color: var(--tech-tree-done);
+	background: var(--tech-tree-done);
+	box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14), 0 5px 12px rgba(0, 0, 0, 0.22);
+}
+
+.tech-tree-node.is-priority-quest .tech-tree-node__done input:checked + span {
+	border-color: var(--tech-tree-quest);
+	background: var(--tech-tree-quest);
+	box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14), 0 5px 12px rgba(0, 0, 0, 0.22);
+}
+
+.tech-tree-node__done input:checked + span::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 42%;
+	height: 24%;
+	border-bottom: 2px solid #111318;
+	border-left: 2px solid #111318;
+	transform: translate(-45%, -62%) rotate(-45deg);
+	transform-origin: 35% 50%;
+}
+
+.tech-tree-node__lock {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 54px;
+	height: 54px;
+	border-radius: 999px;
+	background: rgba(5, 5, 5, 0.42);
+	backdrop-filter: blur(2px);
+	filter: none;
+	opacity: 1;
+	pointer-events: none;
+	transform: translate(-50%, -50%);
+	z-index: 12;
+}
+
+.tech-tree-node__lock span {
+	position: relative;
+	display: block;
+	width: 22px;
+	height: 17px;
+	margin-top: 8px;
+	border-radius: 5px;
+	background: #050505;
+	box-shadow: 0 2px 0 rgba(255, 255, 255, 0.08) inset, 0 8px 18px rgba(0, 0, 0, 0.32);
+}
+
+.tech-tree-node__lock span::before {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: -13px;
+	width: 14px;
+	height: 15px;
+	border: 4px solid #050505;
+	border-bottom: 0;
+	border-radius: 16px 16px 0 0;
+	box-sizing: border-box;
+	transform: translateX(-50%);
+}
+
+.tech-tree-node__lock span::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 6px;
+	width: 8px;
+	height: 10px;
+	background:
+		radial-gradient(circle at 50% 3px, #fff 0 3px, transparent 3.5px),
+		linear-gradient(#fff, #fff) center 6px / 4px 6px no-repeat;
+	transform: translateX(-50%);
+}
+
+.tech-tree-note {
+	flex: 1;
+	width: 100%;
+	min-height: 0;
+	max-height: 100%;
+	padding-top: 12px;
+	outline: none;
+	color: inherit;
+	font-size: 20px;
+	line-height: 1.2;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	overflow-y: auto;
+	cursor: text;
+	user-select: text;
+}
+
+.tech-tree-node__body {
+	display: flex;
+	flex: 1;
+	align-items: stretch;
+	min-width: 0;
+	min-height: 0;
+}
+
+.tech-tree-node.is-locked .tech-tree-note {
+	cursor: default;
+}
+
+.tech-tree-node__priority {
+	display: inline-flex;
+	flex: 1 1 auto;
+	max-width: 146px;
+}
+
+.tech-tree-node__priority select {
+	width: 100%;
+	max-width: 100%;
+	height: 32px;
+	padding: 0 28px 0 12px;
+	border: 2px solid rgba(255, 255, 255, 0.1);
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
+	color: var(--tech-tree-card-text);
+	font-size: 12px;
+	font-weight: 650;
+	cursor: pointer;
+	box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12) inset;
+}
+
+.tech-tree-node__priority select:focus-visible {
+	border-color: var(--interactive-accent);
+	outline: none;
+}
+
+.tech-tree-node__priority select:disabled {
+	opacity: 0.74;
+	cursor: default;
+}
+
+.tech-tree-node__resize-line {
+	border-color: rgba(165, 173, 186, 0.85);
+	pointer-events: none;
+}
+
+.tech-tree-node__resize-handle {
+	width: 12px;
+	height: 12px;
+	border: 2px solid var(--tech-tree-canvas);
+	border-radius: 999px;
+	background: var(--tech-tree-muted-text);
+	opacity: 0;
+	pointer-events: all;
+	transition: opacity 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.react-flow__node:hover .tech-tree-node__resize-handle,
+.react-flow__node.selected .tech-tree-node__resize-handle {
+	opacity: 1;
+}
+
+.tech-tree-node__resize-handle:hover {
+	background: var(--tech-tree-progress);
+	transform: scale(1.1);
+}
+
+.react-flow__resize-control {
+	position: absolute;
+}
+
+.react-flow__resize-control.left,
+.react-flow__resize-control.right {
+	cursor: ew-resize;
+}
+
+.react-flow__resize-control.top,
+.react-flow__resize-control.bottom {
+	cursor: ns-resize;
+}
+
+.react-flow__resize-control.top.left,
+.react-flow__resize-control.bottom.right {
+	cursor: nwse-resize;
+}
+
+.react-flow__resize-control.bottom.left,
+.react-flow__resize-control.top.right {
+	cursor: nesw-resize;
+}
+
+.react-flow__resize-control.handle {
+	translate: -50% -50%;
+}
+
+.react-flow__resize-control.handle.left {
+	left: 0;
+	top: 50%;
+}
+
+.react-flow__resize-control.handle.right {
+	left: 100%;
+	top: 50%;
+}
+
+.react-flow__resize-control.handle.top {
+	left: 50%;
+	top: 0;
+}
+
+.react-flow__resize-control.handle.bottom {
+	left: 50%;
+	top: 100%;
+}
+
+.react-flow__resize-control.handle.top.left,
+.react-flow__resize-control.handle.bottom.left {
+	left: 0;
+}
+
+.react-flow__resize-control.handle.top.right,
+.react-flow__resize-control.handle.bottom.right {
+	left: 100%;
+}
+
+.react-flow__resize-control.line {
+	border-width: 0;
+	border-style: solid;
+}
+
+.react-flow__resize-control.line.left,
+.react-flow__resize-control.line.right {
+	top: 0;
+	width: 1px;
+	height: 100%;
+	transform: translate(-50%, 0);
+}
+
+.react-flow__resize-control.line.left {
+	left: 0;
+	border-left-width: 1px;
+}
+
+.react-flow__resize-control.line.right {
+	left: 100%;
+	border-right-width: 1px;
+}
+
+.react-flow__resize-control.line.top,
+.react-flow__resize-control.line.bottom {
+	left: 0;
+	width: 100%;
+	height: 1px;
+	transform: translate(0, -50%);
+}
+
+.react-flow__resize-control.line.top {
+	top: 0;
+	border-top-width: 1px;
+}
+
+.react-flow__resize-control.line.bottom {
+	top: 100%;
+	border-bottom-width: 1px;
+}
+
+.tech-tree-pane-menu {
+	position: fixed;
+	z-index: 20;
+	min-width: 120px;
+	padding: 6px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
+	background: #25292f;
+	box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+}
+
+.tech-tree-pane-menu button {
+	width: 100%;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--tech-tree-card-text);
+	text-align: left;
+	cursor: pointer;
+}
+
+.tech-tree-pane-menu button:hover,
+.tech-tree-pane-menu button:focus-visible {
+	background: rgba(255, 255, 255, 0.08);
+	outline: none;
+}

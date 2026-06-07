@@ -7,6 +7,7 @@
 
 # npm
 node_modules
+.npm-cache
 
 # Don't include the compiled main.js file in the repo.
 # They should be uploaded to GitHub releases instead.
@@ -17,6 +18,19 @@ main.js
 
 # obsidian
 data.json
+.hotreload
+memory.md
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
+
+# Ignore volatile UI-related state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/app.json
+
+# Ignore cache files
+.obsidian/cache/
+
+# System and OS files
+Thumbs.db
