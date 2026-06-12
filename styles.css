@@ -10,8 +10,7 @@
 	--tech-tree-done: #22c55e;
 	--tech-tree-edge: #7c8490;
 	--tech-tree-quest: #60a5fa;
-	--tech-tree-necessary-path: #22c55e;
-	--tech-tree-soft-glow: rgba(255, 255, 255, 0.5);
+	--tech-tree-necessary-path: #7c8490;
 	--tech-tree-dotted-line-width: 3px;
 	--tech-tree-dotted-edge-pattern: 1 9;
 	--tech-tree-canvas: #1f2124;
@@ -24,6 +23,10 @@
 	position: relative;
 	background: var(--tech-tree-canvas);
 	color: var(--text-normal);
+}
+
+.tech-tree-shell.is-placing-node {
+	cursor: crosshair;
 }
 
 .tech-tree-empty {
@@ -135,11 +138,16 @@
 	top: 14px;
 	left: 50%;
 	z-index: 20;
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
 	transform: translateX(-50%);
 	pointer-events: auto;
 }
 
-.tech-tree-mode-toggle label {
+.tech-tree-mode-toggle label,
+.tech-tree-placement-cancel-label,
+.tech-tree-focus-toggle button {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
@@ -152,9 +160,43 @@
 	font-size: 13px;
 	font-weight: 650;
 	line-height: 1;
-	box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-	backdrop-filter: blur(8px);
 	cursor: pointer;
+}
+
+.tech-tree-focus-toggle {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	z-index: 20;
+	pointer-events: auto;
+}
+
+.tech-tree-focus-toggle button.is-active {
+	border-color: rgba(249, 115, 22, 0.62);
+	background: rgba(249, 115, 22, 0.16);
+	color: var(--tech-tree-progress);
+}
+
+.tech-tree-placement-cancel-label {
+	color: var(--tech-tree-progress);
+	cursor: default;
+	white-space: nowrap;
+}
+
+.tech-tree-quest-toggle {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+}
+
+.tech-tree-quest-toggle__reason {
+	max-width: 220px;
+	color: #ff6b6b;
+	font-size: 11px;
+	font-weight: 650;
+	line-height: 1.2;
+	text-align: center;
 }
 
 .tech-tree-mode-toggle label.is-disabled {
@@ -206,6 +248,24 @@
 	z-index: 5;
 }
 
+.react-flow__selection {
+	border: 1px solid rgba(96, 165, 250, 0.9);
+	background: rgba(96, 165, 250, 0.12);
+}
+
+.react-flow__nodesselection-rect {
+	border: 1px solid rgba(96, 165, 250, 0.85);
+	background: rgba(96, 165, 250, 0.08);
+}
+
+.tech-tree-drag-selection {
+	position: absolute;
+	z-index: 18;
+	border: 1px solid rgba(96, 165, 250, 0.9);
+	background: rgba(96, 165, 250, 0.12);
+	pointer-events: none;
+}
+
 .react-flow__viewport {
 	z-index: 2;
 	pointer-events: none;
@@ -219,6 +279,25 @@
 
 .react-flow__pane.dragging {
 	cursor: grabbing;
+}
+
+.tech-tree-origin-background {
+	position: absolute;
+	left: -250px;
+	top: -250px;
+	z-index: 0;
+	width: 500px;
+	height: 500px;
+	pointer-events: none;
+	user-select: none;
+	opacity: 0.14;
+}
+
+.tech-tree-origin-background img {
+	display: block;
+	width: 500px;
+	height: 500px;
+	pointer-events: none;
 }
 
 .react-flow__edges {
@@ -285,11 +364,11 @@
 .react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-chain .react-flow__edge-path {
-	stroke: var(--tech-tree-progress);
+	stroke: var(--tech-tree-edge);
 }
 
 .react-flow__edge.tech-tree-edge.is-complete-pending .react-flow__edge-path {
-	stroke: var(--tech-tree-necessary-path);
+	stroke: var(--tech-tree-edge);
 }
 
 .react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
@@ -343,21 +422,28 @@
 
 .react-flow__edge.tech-tree-edge.is-necessary-chain {
 	z-index: 4000;
-	filter: drop-shadow(0 0 5px var(--tech-tree-soft-glow));
 }
 
 .react-flow__edge.tech-tree-edge.is-necessary-complete {
 	z-index: 6000;
 }
 
-.react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path {
-	filter: drop-shadow(0 0 6px rgba(249, 115, 22, 0.4)) drop-shadow(0 0 10px rgba(34, 197, 94, 0.28));
+.react-flow__edge.tech-tree-edge.is-priority-path {
+	z-index: 7000;
+}
+
+.react-flow__edge.tech-tree-edge.is-priority-path .react-flow__edge-path {
+	stroke: var(--tech-tree-progress);
+	stroke-width: 4;
+	stroke-dasharray: var(--tech-tree-dotted-edge-pattern);
+	stroke-linecap: round;
+	opacity: 1;
+	filter: drop-shadow(0 0 5px rgba(249, 115, 22, 0.95)) drop-shadow(0 0 12px rgba(249, 115, 22, 0.48));
 }
 
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:focus .react-flow__edge-path {
 	stroke-width: 4;
-	filter: drop-shadow(0 0 5px rgba(165, 173, 186, 0.45));
 }
 
 .react-flow__edgeupdater {
@@ -385,7 +471,6 @@
 .react-flow__edge.is-hover-target .react-flow__edgeupdater-target {
 	fill: rgba(96, 165, 250, 0.22);
 	stroke: rgba(147, 197, 253, 0.95);
-	filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.72));
 }
 
 .react-flow__node {
@@ -404,8 +489,8 @@
 .react-flow__handle {
 	position: absolute;
 	z-index: 5;
-	width: 20px;
-	height: 20px;
+	width: 36px;
+	height: 36px;
 	border: 0;
 	border-radius: 999px;
 	background: transparent;
@@ -416,24 +501,24 @@
 
 .react-flow__handle-left {
 	top: 50%;
-	left: -10px;
+	left: -18px;
 	transform: translateY(-50%);
 }
 
 .react-flow__handle-right {
 	top: 50%;
-	right: -10px;
+	right: -18px;
 	transform: translateY(-50%);
 }
 
 .react-flow__handle-top {
-	top: -10px;
+	top: -18px;
 	left: 50%;
 	transform: translateX(-50%);
 }
 
 .react-flow__handle-bottom {
-	bottom: -10px;
+	bottom: -18px;
 	left: 50%;
 	transform: translateX(-50%);
 }
@@ -443,22 +528,30 @@
 	position: absolute;
 	top: 50%;
 	left: 50%;
-	width: 10px;
-	height: 10px;
+	width: 12px;
+	height: 12px;
 	border: 1px solid var(--tech-tree-canvas);
 	border-radius: 999px;
 	background: #7c8490;
 	opacity: 0;
 	transform: translate(-50%, -50%);
-	transition: opacity 120ms ease, background 120ms ease;
+	transition: opacity 120ms ease, background 120ms ease, width 120ms ease, height 120ms ease, border-color 120ms ease;
 }
 
-.react-flow__node:hover .react-flow__handle::after,
+.react-flow__node:hover .react-flow__handle::after {
+	width: 16px;
+	height: 16px;
+	opacity: 0.85;
+}
+
 .react-flow__handle:hover::after,
 .react-flow__handle.connectingfrom::after,
 .react-flow__handle.connectingto::after,
 .react-flow__handle.valid::after {
-	opacity: 0.9;
+	width: 22px;
+	height: 22px;
+	border-color: rgba(255, 255, 255, 0.72);
+	opacity: 1;
 }
 
 .react-flow__handle-valid {
@@ -512,18 +605,17 @@
 	width: 100%;
 	height: 100%;
 	min-width: 320px;
-	min-height: 170px;
+	min-height: 130px;
 	padding: 10px 16px 16px 34px;
 	border: var(--tech-tree-node-border-width) solid var(--tech-tree-node-border-color);
 	border-radius: 10px;
 	background: var(--tech-tree-node-fill);
 	color: var(--tech-tree-card-text);
-	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-	overflow: hidden;
+	overflow: visible;
 	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
 
-.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control) {
+.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.tech-tree-node__priority-order) {
 	position: relative;
 	z-index: 2;
 }
@@ -539,23 +631,23 @@
 	inset: 0;
 	z-index: 3;
 	border-radius: inherit;
-	background: rgba(17, 19, 24, 0.18);
-	backdrop-filter: blur(2px);
+	background: rgba(17, 19, 24, 0.28);
 	pointer-events: none;
 }
 
 .tech-tree-node.is-locked > :not(.tech-tree-node__lock) {
-	filter: blur(1.2px);
+	opacity: 0.62;
 }
 
 .tech-tree-node.is-locked .tech-tree-node__lock {
-	filter: none;
+	opacity: 1;
 	z-index: 20;
 }
 
 .tech-tree-node.is-locked .react-flow__handle,
 .tech-tree-node.is-locked .tech-tree-node__done,
 .tech-tree-node.is-locked .tech-tree-node__priority,
+.tech-tree-node.is-locked .tech-tree-node__priority-order,
 .tech-tree-node.is-locked .tech-tree-note,
 .tech-tree-node.is-locked .tech-tree-node__resize-handle {
 	pointer-events: none;
@@ -573,7 +665,6 @@
 
 .tech-tree-node.has-checked-neighbor {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
-	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.22), 0 0 20px rgba(249, 115, 22, 0.22), 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .tech-tree-node.is-completed {
@@ -581,7 +672,6 @@
 	--tech-tree-node-fill: #2b2825;
 	background: var(--tech-tree-node-fill);
 	color: var(--tech-tree-card-text);
-	box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(0, 0, 0, 0.3);
 	opacity: 1;
 }
 
@@ -589,7 +679,6 @@
 	--tech-tree-node-border-color: var(--tech-tree-quest);
 	border-style: dotted;
 	border-width: var(--tech-tree-dotted-line-width);
-	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .tech-tree-node.is-priority-quest.is-locked:not(.is-completed) {
@@ -602,7 +691,6 @@
 	--tech-tree-node-border-color: var(--tech-tree-edge);
 	border-style: dotted;
 	border-width: var(--tech-tree-dotted-line-width);
-	box-shadow: 0 0 0 2px rgba(165, 173, 186, 0.14), 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .tech-tree-node.is-priority-quest.is-completed {
@@ -611,28 +699,35 @@
 	border-style: dotted;
 	border-width: var(--tech-tree-dotted-line-width);
 	background: var(--tech-tree-node-fill);
-	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2), 0 12px 28px rgba(0, 0, 0, 0.3);
 }
 
 .tech-tree-node.is-priority-necessary.is-unlocked:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 	border-style: dotted;
 	border-width: var(--tech-tree-dotted-line-width);
-	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .tech-tree-node.is-priority-necessary.is-unlocked.has-checked-neighbor:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 	border-style: solid;
 	border-width: var(--tech-tree-dotted-line-width);
-	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.32), 0 0 22px rgba(249, 115, 22, 0.34), 0 0 36px rgba(249, 115, 22, 0.16), 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .tech-tree-node.is-priority-necessary.is-locked:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 	border-style: dotted;
 	border-width: var(--tech-tree-dotted-line-width);
-	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 0 18px rgba(255, 255, 255, 0.14), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tech-tree-node.is-placement-preview {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	border-style: dashed;
+	opacity: 0.76;
+	pointer-events: none;
+}
+
+.tech-tree-node.is-placement-preview .tech-tree-node__header {
+	opacity: 0.58;
 }
 
 .tech-tree-node__header {
@@ -710,19 +805,17 @@
 	border: 2px solid var(--tech-tree-muted-text);
 	border-radius: 6px;
 	background: rgba(0, 0, 0, 0.18);
-	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+	transition: background 120ms ease, border-color 120ms ease;
 }
 
 .tech-tree-node__done input:checked + span {
 	border-color: var(--tech-tree-done);
 	background: var(--tech-tree-done);
-	box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14), 0 5px 12px rgba(0, 0, 0, 0.22);
 }
 
 .tech-tree-node.is-priority-quest .tech-tree-node__done input:checked + span {
 	border-color: var(--tech-tree-quest);
 	background: var(--tech-tree-quest);
-	box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14), 0 5px 12px rgba(0, 0, 0, 0.22);
 }
 
 .tech-tree-node__done input:checked + span::after {
@@ -749,8 +842,6 @@
 	height: 54px;
 	border-radius: 999px;
 	background: rgba(5, 5, 5, 0.42);
-	backdrop-filter: blur(2px);
-	filter: none;
 	opacity: 1;
 	pointer-events: none;
 	transform: translate(-50%, -50%);
@@ -765,7 +856,6 @@
 	margin-top: 8px;
 	border-radius: 5px;
 	background: #050505;
-	box-shadow: 0 2px 0 rgba(255, 255, 255, 0.08) inset, 0 8px 18px rgba(0, 0, 0, 0.32);
 }
 
 .tech-tree-node__lock span::before {
@@ -803,8 +893,8 @@
 	padding-top: 12px;
 	outline: none;
 	color: inherit;
-	font-size: 20px;
-	line-height: 1.2;
+	font-size: 28px;
+	line-height: 1.12;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	overflow-y: auto;
@@ -818,6 +908,9 @@
 	align-items: stretch;
 	min-width: 0;
 	min-height: 0;
+	padding-right: 28px;
+	padding-bottom: 8px;
+	overflow: hidden;
 }
 
 .tech-tree-node.is-locked .tech-tree-note {
@@ -842,7 +935,6 @@
 	font-size: 12px;
 	font-weight: 650;
 	cursor: pointer;
-	box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12) inset;
 }
 
 .tech-tree-node__priority select:focus-visible {
@@ -851,6 +943,50 @@
 }
 
 .tech-tree-node__priority select:disabled {
+	opacity: 0.74;
+	cursor: default;
+}
+
+.tech-tree-node__priority-order {
+	position: absolute;
+	right: 14px;
+	bottom: 10px;
+	z-index: 4;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 22px;
+}
+
+.tech-tree-node__priority-order input {
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.13);
+	color: rgba(255, 255, 255, 0.88);
+	font-size: 12px;
+	font-weight: 650;
+	line-height: 1;
+	text-align: center;
+	-moz-appearance: textfield;
+}
+
+.tech-tree-node__priority-order input::-webkit-inner-spin-button,
+.tech-tree-node__priority-order input::-webkit-outer-spin-button {
+	margin: 0;
+	-webkit-appearance: none;
+}
+
+.tech-tree-node__priority-order input:focus-visible {
+	border-color: var(--tech-tree-progress);
+	outline: none;
+	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+}
+
+.tech-tree-node__priority-order input:disabled {
 	opacity: 0.74;
 	cursor: default;
 }
@@ -981,7 +1117,7 @@
 }
 
 .tech-tree-pane-menu {
-	position: fixed;
+	position: absolute;
 	z-index: 20;
 	min-width: 120px;
 	padding: 6px;
@@ -1002,7 +1138,21 @@
 	cursor: pointer;
 }
 
-.tech-tree-pane-menu button:hover,
+.tech-tree-pane-menu button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.tech-tree-pane-menu button.tech-tree-pane-menu__danger {
+	color: #ff6b6b;
+}
+
+.tech-tree-pane-menu button.tech-tree-pane-menu__danger:not(:disabled):hover {
+	background: rgba(255, 107, 107, 0.14);
+	color: #ff8a8a;
+}
+
+.tech-tree-pane-menu button:not(:disabled):hover,
 .tech-tree-pane-menu button:focus-visible {
 	background: rgba(255, 255, 255, 0.08);
 	outline: none;

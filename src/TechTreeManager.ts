@@ -42,14 +42,19 @@ export const DEFAULT_BOARD_NAME = "untitled tech-tree";
 const BOARD_EXTENSION = ".canvas";
 const LEGACY_BOARD_SUFFIX = "(metadata).canvas";
 const DEFAULT_NODE_WIDTH = 320;
-const DEFAULT_NODE_HEIGHT = 170;
+const DEFAULT_NODE_HEIGHT = 130;
+const LEGACY_DEFAULT_NODE_HEIGHT = 170;
 const SAVE_DELAY_MS = 250;
 const CONNECTIONS_METADATA_KEY = "connections";
-const HIDDEN_METADATA_KEYS = new Set(["priority", "status", CONNECTIONS_METADATA_KEY]);
-const ORDERED_METADATA_KEYS = ["priority", CONNECTIONS_METADATA_KEY, "status"];
+const QUEST_VIEW_METADATA_KEY = "quest view";
+const PRIORITY_ORDER_METADATA_KEY = "priority order";
+const MIN_PRIORITY_ORDER = 0;
+const MAX_PRIORITY_ORDER = 10;
+const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", CONNECTIONS_METADATA_KEY, QUEST_VIEW_METADATA_KEY]);
+const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status", QUEST_VIEW_METADATA_KEY];
 const METADATA_LINE_PATTERN = /^([a-z][\w -]*):\s*(.*)$/i;
 
-type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "status" | "completed"> & {
+type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "priorityOrder" | "status" | "completed" | "questViewMode"> & {
 	connections: TechTreeConnectionMetadata[];
 	partial: boolean;
 	statusKind: TechTreeStatusKind;
@@ -396,6 +401,18 @@ export function updateNodePriority(existingText: string, priority: TechTreePrior
 	return upsertHiddenMetadata(existingText, "priority", priority);
 }
 
+export function updateNodePriorityOrder(existingText: string, priorityOrder: number): string {
+	const normalizedPriorityOrder = clampPriorityOrder(priorityOrder);
+
+	return normalizedPriorityOrder > MIN_PRIORITY_ORDER
+		? upsertHiddenMetadata(existingText, PRIORITY_ORDER_METADATA_KEY, normalizedPriorityOrder.toString())
+		: removeHiddenMetadata(existingText, PRIORITY_ORDER_METADATA_KEY);
+}
+
+export function updateGoalQuestViewMode(existingText: string, enabled: boolean): string {
+	return upsertHiddenMetadata(existingText, QUEST_VIEW_METADATA_KEY, enabled ? "on" : "off");
+}
+
 function createDefaultBoard(path: string): TechTreeBoard {
 	const outcome = createNode(
 		{ x: 80, y: 260 },
@@ -438,11 +455,11 @@ function createDefaultBoard(path: string): TechTreeBoard {
 }
 
 function createConfiguredNodeText(options: CreateTechTreeNodeOptions): string {
-	const priority = options.priority ?? "quest";
+	const priority = options.priority ?? "necessary";
 	const visibleText = normalizeLineEndings(options.text ?? "").trimEnd();
 
 	if (!visibleText.trim()) {
-		return getDefaultNodeText("New note(What must be true before this works?)", priority);
+		return getDefaultNodeText("truth", priority);
 	}
 
 	return updateNodeVisibleText(getDefaultNodeText("Untitled note", priority), visibleText);
@@ -516,7 +533,7 @@ function boardToCanvas(board: TechTreeBoard): CanvasFile {
 function toFlowNode(node: CanvasTextNode): TechTreeNode {
 	const parsed = parseNodeText(node.text);
 	const width = getNumber(node.width, DEFAULT_NODE_WIDTH);
-	const height = getNumber(node.height, DEFAULT_NODE_HEIGHT);
+	const height = normalizeNodeHeight(getNumber(node.height, DEFAULT_NODE_HEIGHT));
 
 	return {
 		id: node.id,
@@ -536,9 +553,11 @@ function toFlowNode(node: CanvasTextNode): TechTreeNode {
 			visibleText: parsed.visibleText,
 			title: parsed.title,
 			priority: parsed.priority,
+			priorityOrder: parsed.priorityOrder,
 			status: parsed.status,
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
+			questViewMode: parsed.questViewMode,
 			locked: false,
 			hasCheckedNeighbor: false,
 			hasQuestPrerequisite: false,
@@ -549,7 +568,7 @@ function toFlowNode(node: CanvasTextNode): TechTreeNode {
 
 function toCanvasNode(node: TechTreeNode): CanvasTextNode {
 	const width = getNumber(node.width, getNumber(node.measured?.width, DEFAULT_NODE_WIDTH));
-	const height = getNumber(node.height, getNumber(node.measured?.height, DEFAULT_NODE_HEIGHT));
+	const height = normalizeNodeHeight(getNumber(node.height, getNumber(node.measured?.height, DEFAULT_NODE_HEIGHT)));
 
 	return {
 		id: node.id,
@@ -560,6 +579,10 @@ function toCanvasNode(node: TechTreeNode): CanvasTextNode {
 		height: Math.round(height),
 		text: node.data.text
 	};
+}
+
+function normalizeNodeHeight(height: number): number {
+	return height <= LEGACY_DEFAULT_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : Math.max(height, DEFAULT_NODE_HEIGHT);
 }
 
 function toFlowEdge(edge: CanvasEdge): Edge {
@@ -909,9 +932,11 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 					visibleText: parsed.visibleText,
 					title: parsed.title,
 					priority: parsed.priority,
+					priorityOrder: parsed.priorityOrder,
 					status: runtimeStatus,
 					statusKind: getRuntimeStatusKind(runtimeStatus),
 					completed: parsed.completed,
+					questViewMode: parsed.questViewMode,
 					locked,
 					hasCheckedNeighbor,
 					hasQuestPrerequisite,
@@ -981,8 +1006,10 @@ function parseNodeText(text: string): ParsedNodeText {
 		return trimmed && !isHiddenMetadataLine(line);
 	});
 	const priority = normalizePriority(metadata.get("priority"));
+	const priorityOrder = normalizePriorityOrder(metadata.get(PRIORITY_ORDER_METADATA_KEY));
 	const rawStatus = metadata.get("status")?.trim();
 	const statusKind = normalizeStatusKind(rawStatus);
+	const questViewMode = normalizeBooleanMetadata(metadata.get(QUEST_VIEW_METADATA_KEY));
 	const checkboxStates = getCheckboxStates(text);
 	const completed = rawStatus
 		? statusKind === "done"
@@ -997,10 +1024,12 @@ function parseNodeText(text: string): ParsedNodeText {
 		title: firstContentLine?.replace(/^#+\s*/, "").trim() || "Untitled note",
 		visibleText: getVisibleNodeText(text),
 		priority,
+		priorityOrder,
 		connections: parseConnectionMetadata(metadata.get(CONNECTIONS_METADATA_KEY)),
 		status: rawStatus || (completed ? "done" : "open"),
 		statusKind: completed ? "done" : statusKind,
 		completed,
+		questViewMode,
 		partial
 	};
 }
@@ -1035,6 +1064,16 @@ function normalizePriority(value: string | undefined): TechTreePriority {
 	return "quest";
 }
 
+function normalizePriorityOrder(value: string | undefined): number {
+	const parsedValue = Number.parseInt(value ?? "", 10);
+
+	return clampPriorityOrder(Number.isFinite(parsedValue) ? parsedValue : MIN_PRIORITY_ORDER);
+}
+
+function clampPriorityOrder(value: number): number {
+	return Math.min(MAX_PRIORITY_ORDER, Math.max(MIN_PRIORITY_ORDER, Math.trunc(value)));
+}
+
 function getProgressState(parsed: ParsedNodeText, hasIncomingEdges: boolean, locked: boolean): TechTreeProgressState {
 	if (parsed.completed) {
 		return "done";
@@ -1047,7 +1086,7 @@ function getProgressState(parsed: ParsedNodeText, hasIncomingEdges: boolean, loc
 	return "none";
 }
 
-function getDefaultNodeText(title: string, priority: TechTreePriority = "quest", prompt = ""): string {
+function getDefaultNodeText(title: string, priority: TechTreePriority = "necessary", prompt = ""): string {
 	const metadata = new Map<string, string>([
 		["priority", priority],
 		["status", "open"]
@@ -1069,9 +1108,11 @@ function stripNodeRuntimeData(node: TechTreeNode): TechTreeNode {
 			visibleText: parsed.visibleText,
 			title: parsed.title,
 			priority: parsed.priority,
+			priorityOrder: parsed.priorityOrder,
 			status: parsed.status,
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
+			questViewMode: parsed.questViewMode,
 			locked: node.data.locked,
 			hasCheckedNeighbor: node.data.hasCheckedNeighbor,
 			hasQuestPrerequisite: node.data.hasQuestPrerequisite,
@@ -1141,9 +1182,11 @@ function setNodePriority(node: TechTreeNode, priority: TechTreePriority): TechTr
 			visibleText: parsed.visibleText,
 			title: parsed.title,
 			priority: parsed.priority,
+			priorityOrder: parsed.priorityOrder,
 			status: parsed.status,
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
+			questViewMode: parsed.questViewMode,
 			progressState: getProgressState(parsed, node.data.hasCheckedNeighbor, node.data.locked)
 		}
 	};
@@ -1310,6 +1353,12 @@ function normalizeStatusKind(status: string | undefined): TechTreeStatusKind {
 	}
 
 	return "open";
+}
+
+function normalizeBooleanMetadata(value: string | undefined): boolean {
+	const normalized = value?.toLowerCase().trim();
+
+	return normalized === "true" || normalized === "on" || normalized === "yes" || normalized === "quest";
 }
 
 function getCanvasSide(handleId: string | null | undefined, fallback: CanvasSide): CanvasSide {

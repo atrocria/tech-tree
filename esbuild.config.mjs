@@ -34,6 +34,9 @@ const context = await esbuild.context({
 		...builtinModules],
 	format: "cjs",
 	target: "es2018",
+	loader: {
+		".png": "dataurl",
+	},
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,

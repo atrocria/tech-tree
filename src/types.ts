@@ -9,6 +9,7 @@ export type TechTreeNodeData = Record<string, unknown> & {
 	visibleText: string;
 	title: string;
 	priority: TechTreePriority;
+	priorityOrder: number;
 	status: string;
 	statusKind: TechTreeStatusKind;
 	completed: boolean;
@@ -16,10 +17,13 @@ export type TechTreeNodeData = Record<string, unknown> & {
 	hasCheckedNeighbor: boolean;
 	hasQuestPrerequisite: boolean;
 	progressState: TechTreeProgressState;
+	questViewMode: boolean;
 	isQuestView?: boolean;
+	isPlacementPreview?: boolean;
 	onTextChange?: (nodeId: string, text: string) => void;
 	onCompletedChange?: (nodeId: string, completed: boolean) => void;
 	onPriorityChange?: (nodeId: string, priority: TechTreePriority) => void;
+	onPriorityOrderChange?: (nodeId: string, priorityOrder: number) => void;
 	hasOtherGoalNode?: boolean;
 };
 
