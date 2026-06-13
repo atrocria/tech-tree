@@ -34,7 +34,7 @@ import {
 	type XYPosition
 } from "@xyflow/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import bonsaiImageUrl from "./bonsai.png";
+import bonsaiImageUrl from "./assets/bonsai.png";
 import { TechTreeManager, applyNodeState, createNode, updateGoalQuestViewMode, updateNodeCompletionStatus, updateNodePriority, updateNodePriorityOrder, updateNodeVisibleText } from "./TechTreeManager";
 import type { TechTreeBoard, TechTreeNode, TechTreePriority } from "./types";
 
@@ -3832,13 +3832,6 @@ function isAllowedConnectionForNodes(nodes: TechTreeNode[], connection: Connecti
 		&& source.id !== target.id
 		&& isAllowedPriorityEdge(source, target)
 	);
-}
-
-function isAllowedDisplayEdgeForNodes(nodes: TechTreeNode[], edge: ConnectionLike, isQuestView: boolean): boolean {
-	const source = nodes.find((node) => node.id === edge.source);
-	const target = nodes.find((node) => node.id === edge.target);
-
-	return Boolean(source && target && isAllowedDisplayEdge(source, target, isQuestView));
 }
 
 function isAllowedDisplayEdge(source: TechTreeNode, target: TechTreeNode, isQuestView: boolean): boolean {

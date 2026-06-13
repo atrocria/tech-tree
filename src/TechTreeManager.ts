@@ -1229,10 +1229,6 @@ function getVisibleNodeText(text: string): string {
 		.trimEnd();
 }
 
-function getHiddenMetadataLines(text: string): string[] {
-	return formatMetadataLines(getHiddenMetadataMap(text));
-}
-
 function upsertHiddenMetadata(text: string, key: string, value: string): string {
 	const metadata = getHiddenMetadataMap(text);
 	metadata.set(key, value);
