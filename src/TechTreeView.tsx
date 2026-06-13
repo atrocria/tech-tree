@@ -143,6 +143,10 @@ type PersistBoardOptions = {
 	historyEntry?: BoardHistoryEntry | null;
 };
 
+type ApplyBoardStateOptions = {
+	preservePriorityPath?: boolean;
+};
+
 type PriorityPathState = {
 	nodeIds: Set<string>;
 	edgeIds: Set<string>;
@@ -278,6 +282,7 @@ const EDGE_SLICE_BUTTON = 1;
 const EDGE_SLICE_BUTTONS_MASK = 4;
 const CONTEXT_MENU_SUPPRESS_MS = 250;
 const BOARD_HISTORY_LIMIT = 2;
+const TRANSIENT_BOARD_UPDATE_DELAY_MS = 33;
 const MIN_PRIORITY_ORDER = 0;
 const MAX_PRIORITY_ORDER = 10;
 
@@ -351,6 +356,16 @@ export function TechTreeBoardPicker({ boards, onCreateBoard, onOpenBoard }: Tech
 	);
 }
 
+const TechTreeOriginBackground = React.memo(function TechTreeOriginBackground() {
+	return (
+		<ViewportPortal>
+			<div className="tech-tree-origin-background" aria-hidden="true">
+				<img src={bonsaiImageUrl} alt="" draggable={false} />
+			</div>
+		</ViewportPortal>
+	);
+});
+
 function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const reactFlow = useReactFlow<TechTreeNode, Edge>();
 	const shellRef = useRef<HTMLDivElement | null>(null);
@@ -360,6 +375,8 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const historyRef = useRef<BoardHistory>({ undos: [], redos: [] });
 	const boardRef = useRef<TechTreeBoard | null>(null);
 	const transientBoardDirtyRef = useRef(false);
+	const pendingTransientBoardRef = useRef<TechTreeBoard | null>(null);
+	const transientBoardUpdateTimerRef = useRef<number | null>(null);
 	const hoveredEdgeIdRef = useRef<string | null>(null);
 	const slicedEdgeIdsRef = useRef<Set<string>>(new Set());
 	const [board, setBoard] = useState<TechTreeBoard | null>(null);
@@ -375,8 +392,10 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const [priorityPathState, setPriorityPathState] = useState<PriorityPathState>(() => createEmptyPriorityPathState());
 	const priorityPathStateRef = useRef<PriorityPathState>(priorityPathState);
 
-	const applyBoardState = useCallback((nextBoard: TechTreeBoard) => {
-		const nextPriorityPathState = getNextPriorityPathState(boardRef.current, nextBoard, priorityPathStateRef.current);
+	const applyBoardState = useCallback((nextBoard: TechTreeBoard, options: ApplyBoardStateOptions = {}) => {
+		const nextPriorityPathState = options.preservePriorityPath
+			? priorityPathStateRef.current
+			: getNextPriorityPathState(boardRef.current, nextBoard, priorityPathStateRef.current);
 
 		priorityPathStateRef.current = nextPriorityPathState;
 		setPriorityPathState(nextPriorityPathState);
@@ -386,6 +405,13 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 	useEffect(() => {
 		let disposed = false;
+		if (transientBoardUpdateTimerRef.current !== null) {
+			window.clearTimeout(transientBoardUpdateTimerRef.current);
+			transientBoardUpdateTimerRef.current = null;
+		}
+
+		pendingTransientBoardRef.current = null;
+		transientBoardDirtyRef.current = false;
 		historyRef.current = { undos: [], redos: [] };
 		const unsubscribe = manager.subscribe(boardPath, (nextBoard) => {
 			if (!disposed) {
@@ -412,9 +438,52 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		};
 	}, [applyBoardState, boardPath, manager]);
 
-	const updateBoardLocal = useCallback((nextBoard: TechTreeBoard) => {
-		applyBoardState(nextBoard);
+	const updateBoardLocal = useCallback((nextBoard: TechTreeBoard, options: ApplyBoardStateOptions = {}) => {
+		applyBoardState(nextBoard, options);
 	}, [applyBoardState]);
+
+	const flushTransientBoardUpdate = useCallback(() => {
+		if (transientBoardUpdateTimerRef.current !== null) {
+			window.clearTimeout(transientBoardUpdateTimerRef.current);
+			transientBoardUpdateTimerRef.current = null;
+		}
+
+		const pendingBoard = pendingTransientBoardRef.current;
+		pendingTransientBoardRef.current = null;
+
+		if (pendingBoard) {
+			applyBoardState(pendingBoard, { preservePriorityPath: true });
+		}
+	}, [applyBoardState]);
+
+	const queueTransientBoardUpdate = useCallback((nextBoard: TechTreeBoard) => {
+		pendingTransientBoardRef.current = nextBoard;
+
+		if (transientBoardUpdateTimerRef.current !== null) {
+			return;
+		}
+
+		transientBoardUpdateTimerRef.current = window.setTimeout(() => {
+			transientBoardUpdateTimerRef.current = null;
+			const pendingBoard = pendingTransientBoardRef.current;
+			pendingTransientBoardRef.current = null;
+
+			if (pendingBoard) {
+				applyBoardState(pendingBoard, { preservePriorityPath: true });
+			}
+		}, TRANSIENT_BOARD_UPDATE_DELAY_MS);
+	}, [applyBoardState]);
+
+	useEffect(() => {
+		return () => {
+			if (transientBoardUpdateTimerRef.current !== null) {
+				window.clearTimeout(transientBoardUpdateTimerRef.current);
+				transientBoardUpdateTimerRef.current = null;
+			}
+
+			pendingTransientBoardRef.current = null;
+		};
+	}, []);
 
 	const persistBoard = useCallback(
 		async (nextBoard: TechTreeBoard, options: PersistBoardOptions = {}) => {
@@ -908,7 +977,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 				if (isTransientNodePositionChange(questChanges)) {
 					transientBoardDirtyRef.current = true;
-					updateBoardLocal(nextBoard);
+					queueTransientBoardUpdate(nextBoard);
 					return;
 				}
 
@@ -951,7 +1020,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 			if (isTransientNodePositionChange(boardChanges) || isTransientNodeDimensionChange(boardChanges)) {
 				transientBoardDirtyRef.current = true;
-				updateBoardLocal(nextBoard);
+				queueTransientBoardUpdate(nextBoard);
 				return;
 			}
 
@@ -968,7 +1037,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 			void persistBoard(nextBoard);
 		},
-		[board, flowNodes, isPlacingNode, isQuestView, persistBoard, questMirrorBounds, updateBoardLocal]
+		[board, flowNodes, isPlacingNode, isQuestView, persistBoard, questMirrorBounds, queueTransientBoardUpdate, updateBoardLocal]
 	);
 
 	const handleEdgesChange = useCallback(
@@ -998,13 +1067,14 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 			return;
 		}
 
+		flushTransientBoardUpdate();
 		const latestBoard = boardRef.current;
 		transientBoardDirtyRef.current = false;
 
 		if (latestBoard) {
 			void persistBoard(latestBoard, { recordHistory: false });
 		}
-	}, [persistBoard]);
+	}, [flushTransientBoardUpdate, persistBoard]);
 
 	const normalizeEdgeForBoard = useCallback(
 		(edge: Edge): Edge => {
@@ -1806,12 +1876,8 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				fitView
 				fitViewOptions={{ padding: 0.18 }}
 			>
-				<ViewportPortal>
-					<div className="tech-tree-origin-background" aria-hidden="true">
-						<img src={bonsaiImageUrl} alt="" draggable={false} />
-					</div>
-				</ViewportPortal>
-				<Controls />
+				<TechTreeOriginBackground />
+				<Controls showInteractive={false} />
 			</ReactFlow>
 			{rightDragSelection?.active ? (
 				<div
@@ -3543,12 +3609,13 @@ function getEdgeClassName(source: TechTreeNode | undefined, target: TechTreeNode
 	const className: string[] = [EDGE_CLASSES.base];
 
 	if ((sourceQuest && targetGoal) || (sourceGoal && targetQuest)) {
-		className.push(EDGE_CLASSES.questGoalPath);
+		const questEndpointCompleted = sourceQuest ? sourceCompleted : targetCompleted;
+		className.push(questEndpointCompleted ? EDGE_CLASSES.questDoneToDone : EDGE_CLASSES.questGoalPath);
 		return className.join(" ");
 	}
 
 	if (sourceQuest && targetQuest) {
-		className.push(EDGE_CLASSES.questPath);
+		className.push(sourceCompleted && targetCompleted ? EDGE_CLASSES.questDoneToDone : EDGE_CLASSES.questPath);
 		return className.join(" ");
 	}
 
@@ -3572,7 +3639,7 @@ function getEdgeClassName(source: TechTreeNode | undefined, target: TechTreeNode
 		return className.join(" ");
 	}
 
-	if (sourceNecessary && targetNecessary && sourceCompleted && targetCompleted) {
+	if (sourceNecessary && targetCompleted && (targetNecessary || targetGoal || targetMediumImpact)) {
 		className.push(EDGE_CLASSES.necessaryComplete);
 		return className.join(" ");
 	}
@@ -3641,7 +3708,7 @@ function getEdgeMarkerColor(className: string): string {
 	}
 
 	if (hasEdgeClass(className, EDGE_CLASSES.questGoalPath)) {
-		return EDGE_MARKER_COLORS.quest;
+		return EDGE_MARKER_COLORS.muted;
 	}
 
 	if (hasEdgeClass(className, EDGE_CLASSES.questDoneToDone)) {
@@ -3673,7 +3740,7 @@ function getEdgeMarkerColor(className: string): string {
 	}
 
 	if (hasEdgeClass(className, EDGE_CLASSES.questPath)) {
-		return EDGE_MARKER_COLORS.quest;
+		return EDGE_MARKER_COLORS.muted;
 	}
 
 	if (hasEdgeClass(className, EDGE_CLASSES.necessaryChain)) {

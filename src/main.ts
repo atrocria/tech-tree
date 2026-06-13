@@ -22,20 +22,12 @@ import {
 	isCanvasPath
 } from "./TechTreeManager";
 import { TechTreeApp, TechTreeBoardPicker } from "./TechTreeView";
+import bonsaiRibbonIcon from "./bonsai_ribbon.svg";
 import type { TechTreePriority } from "./types";
 
 export const TECH_TREE_VIEW_TYPE = "tech-tree-view";
 const CANVAS_VIEW_TYPE = "canvas";
 const TECH_TREE_ICON = "tech-tree-bonsai";
-const TECH_TREE_ICON_SVG = `
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-	<path d="M7 20h10l-1 2H8l-1-2Z"/>
-	<path d="M12 20c.8-3.4.2-6.2-1.8-8.5"/>
-	<path d="M11.5 15.5c2.4-1.2 4.3-2.9 5.7-5"/>
-	<path d="M5.5 8.2c3.3-2.8 8.1-3.5 13-1.8"/>
-	<path d="M7.2 11.4c3.7-1.9 7.8-2 11.8-.2"/>
-	<path d="M9 5.4c2.4-1.5 5.2-1.9 8.1-1"/>
-</svg>`;
 
 type TechTreeBoardMode = "tech-tree" | "canvas";
 
@@ -45,7 +37,7 @@ export default class TechTreePlugin extends Plugin {
 
 	async onload() {
 		this.manager = TechTreeManager.getInstance(this.app, this);
-		addIcon(TECH_TREE_ICON, TECH_TREE_ICON_SVG);
+		addIcon(TECH_TREE_ICON, bonsaiRibbonIcon);
 
 		this.registerView(
 			TECH_TREE_VIEW_TYPE,

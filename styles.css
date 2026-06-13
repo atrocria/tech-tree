@@ -371,33 +371,20 @@
 	stroke: var(--tech-tree-edge);
 }
 
-.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path {
-	stroke: var(--tech-tree-quest);
-}
-
 .react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-quest-medium-undone-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path {
+.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path {
 	stroke: var(--tech-tree-edge);
 }
 
-.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path {
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path {
 	stroke: var(--tech-tree-quest);
-	stroke-width: 3;
-	stroke-dasharray: none;
-	stroke-linecap: butt;
-	opacity: 1;
 }
 
 .react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path {

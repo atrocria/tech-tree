@@ -415,36 +415,26 @@ export function updateGoalQuestViewMode(existingText: string, enabled: boolean):
 
 function createDefaultBoard(path: string): TechTreeBoard {
 	const outcome = createNode(
-		{ x: 80, y: 260 },
-		getDefaultNodeText("Outcome", "goal", "What are we trying to make inevitable?")
+		{ x: -520, y: -65 },
+		getDefaultNodeText("inevitable outcome", "goal")
 	);
 	const firstNecessary = createNode(
-		{ x: 460, y: 120 },
-		getDefaultNodeText("First necessary step", "necessary", "What must be true before this works?")
+		{ x: 200, y: -160 },
+		getDefaultNodeText("broken down", "necessary")
 	);
 	const secondNecessary = createNode(
-		{ x: 840, y: 120 },
-		getDefaultNodeText("Second necessary step", "necessary", "What must be true after that?")
-	);
-	const firstQuest = createNode(
-		{ x: 460, y: 400 },
-		getDefaultNodeText("Priority path", "quest", "Which branch removes the biggest unknown first?")
-	);
-	const secondQuest = createNode(
-		{ x: 840, y: 400 },
-		getDefaultNodeText("Next quest", "quest", "What optional path should follow?")
+		{ x: 200, y: 30 },
+		getDefaultNodeText("broken down", "necessary")
 	);
 
 	const board: TechTreeBoard = {
 		path,
 		name: getBoardName(path),
 		updatedAt: Date.now(),
-		nodes: [outcome, firstNecessary, secondNecessary, firstQuest, secondQuest],
+		nodes: [outcome, firstNecessary, secondNecessary],
 		edges: [
 			createEdge(outcome.id, firstNecessary.id),
-			createEdge(firstNecessary.id, secondNecessary.id),
-			createEdge(outcome.id, firstQuest.id),
-			createEdge(firstQuest.id, secondQuest.id)
+			createEdge(outcome.id, secondNecessary.id)
 		]
 	};
 
@@ -900,6 +890,10 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 				return false;
 			}
 
+			if (source && target && isMediumImpactToNecessaryEdge(source, target)) {
+				return false;
+			}
+
 			return !source || isLocked(source.id, new Set(seen)) || !isParsedNodeUnlocked(parsedById.get(source.id));
 		});
 
@@ -987,6 +981,10 @@ function isAllowedPriorityEdge(source: TechTreeNode, target: TechTreeNode): bool
 
 function isNecessaryToNonNecessaryEdge(source: TechTreeNode, target: TechTreeNode): boolean {
 	return source.data.priority === "necessary" && target.data.priority !== "necessary";
+}
+
+function isMediumImpactToNecessaryEdge(source: TechTreeNode, target: TechTreeNode): boolean {
+	return source.data.priority === "medium impact" && target.data.priority === "necessary";
 }
 
 function parseNodeText(text: string): ParsedNodeText {

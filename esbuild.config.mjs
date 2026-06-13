@@ -36,6 +36,7 @@ const context = await esbuild.context({
 	target: "es2018",
 	loader: {
 		".png": "dataurl",
+		".svg": "text",
 	},
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",
