@@ -219,6 +219,12 @@ export class TechTreeManager {
 			.sort((a, b) => a.path.localeCompare(b.path));
 	}
 
+	getBoardFileData(path: string): string | null {
+		const board = this.boards.get(path);
+
+		return board ? stringifyCanvas(boardToCanvas(board)) : null;
+	}
+
 	async isTechTreeCanvasFile(file: TFile): Promise<boolean> {
 		if (!isCanvasPath(file.path)) {
 			return false;

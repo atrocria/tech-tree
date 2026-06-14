@@ -555,22 +555,101 @@
 	opacity: 1;
 }
 
-.react-flow__controls {
+.tech-tree-viewport-controls {
+	position: absolute;
+	top: 148px;
+	right: 8px;
+	bottom: 56px;
+	z-index: 20;
 	display: flex;
 	flex-direction: column;
-	box-shadow: var(--shadow-s);
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	pointer-events: auto;
 }
 
-.react-flow__controls-button {
+.tech-tree-zoom-slider {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 26px;
-	height: 26px;
-	padding: 4px;
+	width: 34px;
+	height: clamp(132px, calc(100% - 54px), 340px);
+	padding: 8px 0;
 	border: 1px solid rgba(255, 255, 255, 0.12);
-	background: #2a2d31;
-	color: var(--text-normal);
+	border-radius: 8px;
+	background: rgba(36, 40, 46, 0.92);
+	color: var(--tech-tree-muted-text);
+	box-shadow: none;
+	cursor: default;
+}
+
+.tech-tree-zoom-slider__mark {
+	position: absolute;
+	left: 0;
+	width: 100%;
+	color: var(--tech-tree-muted-text);
+	font-size: 14px;
+	font-weight: 700;
+	line-height: 1;
+	text-align: center;
+	user-select: none;
+}
+
+.tech-tree-zoom-slider__mark:first-child {
+	top: 8px;
+}
+
+.tech-tree-zoom-slider__mark:last-child {
+	bottom: 8px;
+}
+
+.tech-tree-zoom-slider input[type="range"] {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 164px;
+	height: 18px;
+	margin: 0;
+	accent-color: var(--tech-tree-quest);
+	background: transparent;
+	cursor: pointer;
+	transform: translate(-50%, -50%) rotate(-90deg);
+	transform-origin: center;
+}
+
+.tech-tree-zoom-slider input[type="range"]:focus-visible {
+	outline: 2px solid rgba(96, 165, 250, 0.52);
+	outline-offset: 3px;
+}
+
+.tech-tree-fit-view-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	padding: 0;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 8px;
+	background: rgba(36, 40, 46, 0.92);
+	color: var(--tech-tree-card-text);
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.tech-tree-fit-view-button:hover,
+.tech-tree-fit-view-button:focus-visible {
+	border-color: rgba(96, 165, 250, 0.48);
+	background: rgba(96, 165, 250, 0.14);
+	color: var(--tech-tree-card-text);
+	outline: none;
+}
+
+.tech-tree-fit-view-icon {
+	width: 17px;
+	height: 17px;
 }
 
 .react-flow__minimap {

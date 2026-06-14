@@ -5,7 +5,6 @@ import {
 	BaseEdge,
 	ConnectionLineType,
 	ConnectionMode,
-	Controls,
 	EdgeToolbar,
 	getSmoothStepPath,
 	getStraightPath,
@@ -18,6 +17,7 @@ import {
 	ViewportPortal,
 	reconnectEdge,
 	useReactFlow,
+	useViewport,
 	type Connection,
 	type DefaultEdgeOptions,
 	type Edge,
@@ -273,6 +273,15 @@ const DEFAULT_NEW_NODE_OPTIONS = { priority: "necessary" } as const;
 const PLACEMENT_PREVIEW_NODE_ID = "tech-tree-placement-preview";
 const PANE_MENU_OFFSET_Y = 10;
 const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+const MIN_ZOOM_PERCENT = MIN_ZOOM * 100;
+const MAX_ZOOM_PERCENT = MAX_ZOOM * 100;
+const FIT_VIEW_PADDING = 0.18;
+const ZOOM_CONTROLS_TOP_CLEARANCE = 148;
+const ZOOM_CONTROLS_BOTTOM_CLEARANCE = 56;
+const ZOOM_SLIDER_MIN_HEIGHT = 132;
+const ZOOM_SLIDER_MAX_HEIGHT = 340;
+const ZOOM_SLIDER_TRACK_PADDING = 56;
 const CONNECTION_RADIUS = 64;
 const RECONNECT_RADIUS = 44;
 const RIGHT_DRAG_SELECTION_BUTTON = 2;
@@ -365,6 +374,164 @@ const TechTreeOriginBackground = React.memo(function TechTreeOriginBackground() 
 		</ViewportPortal>
 	);
 });
+
+function TechTreeViewportControls() {
+	const reactFlow = useReactFlow<TechTreeNode, Edge>();
+	const { zoom } = useViewport();
+	const controlsRef = useRef<HTMLDivElement | null>(null);
+	const [sliderHeight, setSliderHeight] = useState(220);
+	const zoomPercent = Math.round(clampZoom(zoom) * 100);
+	const sliderTrackLength = Math.max(80, sliderHeight - ZOOM_SLIDER_TRACK_PADDING);
+
+	useEffect(() => {
+		const controls = controlsRef.current;
+
+		if (!controls) {
+			return;
+		}
+
+		const updateSliderHeight = () => {
+			const availableHeight = controls.getBoundingClientRect().height - 54;
+			const nextHeight = Math.round(Math.max(
+				ZOOM_SLIDER_MIN_HEIGHT,
+				Math.min(ZOOM_SLIDER_MAX_HEIGHT, availableHeight)
+			));
+
+			setSliderHeight((currentHeight) => currentHeight === nextHeight ? currentHeight : nextHeight);
+		};
+
+		updateSliderHeight();
+
+		if (typeof ResizeObserver === "undefined") {
+			window.addEventListener("resize", updateSliderHeight);
+
+			return () => window.removeEventListener("resize", updateSliderHeight);
+		}
+
+		const observer = new ResizeObserver(updateSliderHeight);
+		observer.observe(controls);
+
+		return () => observer.disconnect();
+	}, []);
+
+	const handleZoomChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+		const nextZoom = Number(event.currentTarget.value) / 100;
+
+		void reactFlow.zoomTo(clampZoom(nextZoom));
+	}, [reactFlow]);
+
+	const handleFitView = useCallback(() => {
+		void reactFlow.fitView({ padding: FIT_VIEW_PADDING });
+	}, [reactFlow]);
+
+	return (
+		<div
+			ref={controlsRef}
+			className="tech-tree-viewport-controls nodrag nowheel nopan"
+			style={{
+				position: "absolute",
+				top: ZOOM_CONTROLS_TOP_CLEARANCE,
+				right: 8,
+				bottom: ZOOM_CONTROLS_BOTTOM_CLEARANCE,
+				zIndex: 20,
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+				justifyContent: "center",
+				gap: 6,
+				pointerEvents: "auto"
+			}}
+		>
+			<label
+				className="tech-tree-zoom-slider"
+				title={`Zoom ${zoomPercent}%`}
+				style={{
+					position: "relative",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					width: 34,
+					height: sliderHeight,
+					padding: "8px 0"
+				}}
+			>
+				<span
+					className="tech-tree-zoom-slider__mark"
+					aria-hidden="true"
+					style={{ position: "absolute", top: 8, left: 0, width: "100%", textAlign: "center" }}
+				>
+					+
+				</span>
+				<input
+					type="range"
+					min={MIN_ZOOM_PERCENT}
+					max={MAX_ZOOM_PERCENT}
+					step={1}
+					value={zoomPercent}
+					aria-label="Zoom"
+					onChange={handleZoomChange}
+					style={{
+						position: "absolute",
+						top: "50%",
+						left: "50%",
+						width: sliderTrackLength,
+						height: 18,
+						margin: 0,
+						transform: "translate(-50%, -50%) rotate(-90deg)",
+						transformOrigin: "center"
+					}}
+				/>
+				<span
+					className="tech-tree-zoom-slider__mark"
+					aria-hidden="true"
+					style={{ position: "absolute", bottom: 8, left: 0, width: "100%", textAlign: "center" }}
+				>
+					-
+				</span>
+			</label>
+			<button
+				type="button"
+				className="tech-tree-fit-view-button"
+				title="Fit board to view"
+				aria-label="Fit board to view"
+				onClick={handleFitView}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					width: 34,
+					height: 34,
+					padding: 0
+				}}
+			>
+				<FitViewIcon className="tech-tree-fit-view-icon" />
+			</button>
+		</div>
+	);
+}
+
+function FitViewIcon({ className }: { className?: string }) {
+	return (
+		<svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+			<path
+				d="M3.5 6V3.5H6M10 3.5h2.5V6M12.5 10v2.5H10M6 12.5H3.5V10"
+				fill="none"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="1.7"
+			/>
+		</svg>
+	);
+}
+
+function clampZoom(value: number): number {
+	if (!Number.isFinite(value)) {
+		return 1;
+	}
+
+	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
 
 function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const reactFlow = useReactFlow<TechTreeNode, Edge>();
@@ -646,36 +813,9 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		setIsPlacingNode(false);
 		setPlacementFlowPosition(null);
 		window.requestAnimationFrame(() => {
-			void reactFlow.fitView({ padding: 0.18 });
+			void reactFlow.fitView({ padding: FIT_VIEW_PADDING });
 		});
 	}, [isQuestView, reactFlow]);
-
-	useEffect(() => {
-		const shell = shellRef.current;
-
-		if (!shell) {
-			return;
-		}
-
-		const removeControlTooltips = () => {
-			shell.querySelectorAll(".react-flow__controls-button[title]").forEach((element) => {
-				element.removeAttribute("title");
-			});
-		};
-		const observer = new MutationObserver(removeControlTooltips);
-
-		removeControlTooltips();
-		observer.observe(shell, {
-			attributes: true,
-			attributeFilter: ["title"],
-			childList: true,
-			subtree: true
-		});
-
-		return () => {
-			observer.disconnect();
-		};
-	}, [board]);
 
 	const handleTextChange = useCallback(
 		(nodeId: string, text: string) => {
@@ -1873,11 +2013,12 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				connectionRadius={CONNECTION_RADIUS}
 				reconnectRadius={RECONNECT_RADIUS}
 				minZoom={MIN_ZOOM}
+				maxZoom={MAX_ZOOM}
 				fitView
-				fitViewOptions={{ padding: 0.18 }}
+				fitViewOptions={{ padding: FIT_VIEW_PADDING }}
 			>
 				<TechTreeOriginBackground />
-				<Controls showInteractive={false} />
+				<TechTreeViewportControls />
 			</ReactFlow>
 			{rightDragSelection?.active ? (
 				<div
@@ -2965,19 +3106,19 @@ function isNodeLayoutOnlyChange(changes: NodeChange<TechTreeNode>[]): boolean {
 
 function shouldIgnoreRightDragSelectionTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
 	));
 }
 
 function shouldIgnoreNodePlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 
 function shouldIgnoreAltPlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 

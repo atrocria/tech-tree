@@ -1,10 +1,10 @@
 import React from "react";
 import {
-	ItemView,
 	Modal,
 	Notice,
 	Setting,
 	SuggestModal,
+	TextFileView,
 	type App,
 	type TFile,
 	type TFolder,
@@ -30,9 +30,8 @@ export interface TechTreePluginHost {
 	openCanvasView(path: string, leaf?: WorkspaceLeaf | null): Promise<void>;
 }
 
-export class TechTreeItemView extends ItemView {
+export class TechTreeItemView extends TextFileView {
 	private root: Root | null = null;
-	private boardPath: string | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -40,6 +39,7 @@ export class TechTreeItemView extends ItemView {
 		private readonly plugin: TechTreePluginHost
 	) {
 		super(leaf);
+		this.allowNoFile = true;
 		this.navigation = true;
 	}
 
@@ -48,32 +48,50 @@ export class TechTreeItemView extends ItemView {
 	}
 
 	getDisplayText() {
-		return this.boardPath ? getBoardName(this.boardPath) : "Tech tree";
+		return this.file?.basename ?? "Tech tree";
 	}
 
 	getIcon() {
 		return TECH_TREE_ICON;
 	}
 
-	getState(): Record<string, unknown> {
-		return {
-			...super.getState(),
-			file: this.boardPath
-		};
+	canAcceptExtension(extension: string): boolean {
+		return extension === "canvas";
+	}
+
+	getViewData(): string {
+		if (!this.file) {
+			return this.data ?? "";
+		}
+
+		return this.manager.getBoardFileData(this.file.path) ?? this.data ?? "";
+	}
+
+	setViewData(data: string, clear: boolean): void {
+		this.data = data;
+
+		if (clear) {
+			this.root?.unmount();
+			this.root = null;
+			this.contentEl.empty();
+			this.contentEl.addClass("tech-tree-view-container");
+		}
+
+		this.render();
+	}
+
+	clear(): void {
+		this.data = "";
+		this.render();
 	}
 
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
-		if (state && typeof state === "object" && "file" in state && typeof state.file === "string") {
-			this.boardPath = state.file;
-		} else {
-			this.boardPath = null;
-		}
-
 		await super.setState(state, result);
 		this.render();
 	}
 
 	async onOpen() {
+		await super.onOpen();
 		this.contentEl.empty();
 		this.contentEl.addClass("tech-tree-view-container");
 		this.addAction("plus-circle", "Add tech tree node", () => {
@@ -89,17 +107,22 @@ export class TechTreeItemView extends ItemView {
 	}
 
 	async onClose() {
+		await super.onClose();
 		this.root?.unmount();
 		this.root = null;
 		this.contentEl.removeClass("tech-tree-view-container");
 	}
 
 	handleRename(newPath: string, oldPath: string): void {
-		if (this.boardPath !== oldPath) {
+		if (this.file?.path !== newPath && this.file?.path !== oldPath) {
 			return;
 		}
 
-		this.boardPath = newPath;
+		this.render();
+	}
+
+	async onRename(file: TFile): Promise<void> {
+		await super.onRename(file);
 		this.render();
 	}
 
@@ -112,9 +135,9 @@ export class TechTreeItemView extends ItemView {
 			React.createElement(
 				React.StrictMode,
 				null,
-				this.boardPath && isCanvasPath(this.boardPath)
+				this.file && isCanvasPath(this.file.path)
 					? React.createElement(TechTreeApp, {
-						boardPath: this.boardPath,
+						boardPath: this.file.path,
 						manager: this.manager
 					})
 					: React.createElement(TechTreeBoardPicker, {
@@ -134,21 +157,21 @@ export class TechTreeItemView extends ItemView {
 	}
 
 	private openCanvasView(): void {
-		if (!this.boardPath) {
+		if (!this.file) {
 			new Notice("Open a tech tree board first.");
 			return;
 		}
 
-		void this.plugin.openCanvasView(this.boardPath, this.leaf);
+		void this.plugin.openCanvasView(this.file.path, this.leaf);
 	}
 
 	private openAddNodeModal(): void {
-		if (!this.boardPath) {
+		if (!this.file) {
 			new Notice("Open a tech tree board first.");
 			return;
 		}
 
-		const boardPath = this.boardPath;
+		const boardPath = this.file.path;
 		new TechTreeAddNodeModal(this.plugin.app, (options) => this.manager.addNodeToBoard(boardPath, options)).open();
 	}
 }
