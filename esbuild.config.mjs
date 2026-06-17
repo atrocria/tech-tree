@@ -40,7 +40,7 @@ const context = await esbuild.context({
 		".svg": "text",
 	},
 	logLevel: "info",
-	sourcemap: prod ? false : "inline",
+	sourcemap: prod ? false : "external",
 	treeShaking: true,
 	outfile: "main.js",
 	minify: prod,

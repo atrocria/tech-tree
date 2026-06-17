@@ -1,4 +1,19 @@
+.workspace-leaf-content[data-type="tech-tree-view"] .view-content {
+	padding: 0;
+	overflow: hidden;
+}
+
+.workspace-leaf-content[data-type="tech-tree-view"] > .view-header {
+	display: flex !important;
+}
+
+.workspace-leaf-content[data-type="tech-tree-view"] .view-action.is-active {
+	color: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
 .tech-tree-view-container {
+	width: 100%;
 	height: 100%;
 	padding: 0;
 	overflow: hidden;
@@ -13,11 +28,12 @@
 	--tech-tree-necessary-path: #7c8490;
 	--tech-tree-dotted-line-width: 3px;
 	--tech-tree-dotted-edge-pattern: 1 9;
-	--tech-tree-canvas: #1f2124;
+	--tech-tree-canvas: var(--background-primary);
 	--tech-tree-card: #24282e;
 	--tech-tree-card-hover: #2a3038;
 	--tech-tree-card-text: #f2f5f8;
 	--tech-tree-muted-text: #a5adba;
+	contain: content;
 	width: 100%;
 	height: 100%;
 	position: relative;
@@ -127,12 +143,6 @@
 	font-size: 12px;
 }
 
-.tech-tree-add-node-modal__text {
-	width: 100%;
-	min-height: 120px;
-	resize: vertical;
-}
-
 .tech-tree-mode-toggle {
 	position: absolute;
 	top: 14px;
@@ -146,8 +156,7 @@
 }
 
 .tech-tree-mode-toggle label,
-.tech-tree-placement-cancel-label,
-.tech-tree-focus-toggle button {
+.tech-tree-placement-cancel-label {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
@@ -161,20 +170,6 @@
 	font-weight: 650;
 	line-height: 1;
 	cursor: pointer;
-}
-
-.tech-tree-focus-toggle {
-	position: absolute;
-	top: 14px;
-	right: 14px;
-	z-index: 20;
-	pointer-events: auto;
-}
-
-.tech-tree-focus-toggle button.is-active {
-	border-color: rgba(249, 115, 22, 0.62);
-	background: rgba(249, 115, 22, 0.16);
-	color: var(--tech-tree-progress);
 }
 
 .tech-tree-placement-cancel-label {
@@ -216,11 +211,52 @@
 	cursor: default;
 }
 
+.tech-tree-board-toolbar {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	pointer-events: auto;
+}
+
+.tech-tree-focus-mode-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 34px;
+	padding: 6px 12px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 8px;
+	background: rgba(36, 40, 46, 0.92);
+	color: var(--tech-tree-card-text);
+	font-size: 13px;
+	font-weight: 650;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.tech-tree-focus-mode-button:hover,
+.tech-tree-focus-mode-button:focus-visible {
+	border-color: rgba(96, 165, 250, 0.48);
+	background: rgba(96, 165, 250, 0.14);
+	outline: none;
+}
+
+.tech-tree-focus-mode-button.is-active {
+	border-color: rgba(249, 115, 22, 0.62);
+	background: rgba(249, 115, 22, 0.16);
+	color: var(--tech-tree-progress);
+}
+
 .react-flow {
 	position: relative;
 	width: 100%;
 	height: 100%;
 	overflow: hidden;
+	background: var(--tech-tree-canvas);
 	direction: ltr;
 }
 

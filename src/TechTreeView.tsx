@@ -541,11 +541,14 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const lastPointerPositionRef = useRef<ClientPosition | null>(null);
 	const historyRef = useRef<BoardHistory>({ undos: [], redos: [] });
 	const boardRef = useRef<TechTreeBoard | null>(null);
+	const activeBoardRef = useRef<TechTreeBoard | null>(null);
 	const transientBoardDirtyRef = useRef(false);
 	const pendingTransientBoardRef = useRef<TechTreeBoard | null>(null);
 	const transientBoardUpdateTimerRef = useRef<number | null>(null);
 	const hoveredEdgeIdRef = useRef<string | null>(null);
 	const slicedEdgeIdsRef = useRef<Set<string>>(new Set());
+	const flowNodeCacheRef = useRef<Map<string, TechTreeNode>>(new Map());
+	const flowEdgeCacheRef = useRef<Map<string, Edge>>(new Map());
 	const [board, setBoard] = useState<TechTreeBoard | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
@@ -654,8 +657,10 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 	const persistBoard = useCallback(
 		async (nextBoard: TechTreeBoard, options: PersistBoardOptions = {}) => {
-			if (options.recordHistory !== false && board) {
-				const historyEntry = options.historyEntry ?? createBoardHistoryEntry(board, nextBoard);
+			const currentBoard = boardRef.current;
+
+			if (options.recordHistory !== false && currentBoard) {
+				const historyEntry = options.historyEntry ?? createBoardHistoryEntry(currentBoard, nextBoard);
 
 				if (historyEntry) {
 					pushBoardHistory(historyRef.current.undos, historyEntry);
@@ -673,7 +678,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				setError(saveError instanceof Error ? saveError.message : "Unable to update tech tree board.");
 			}
 		},
-		[applyBoardState, board, boardPath, manager]
+		[applyBoardState, boardPath, manager]
 	);
 
 	const undoBoardChange = useCallback(
@@ -780,6 +785,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		},
 		[board, isFocusMode, isQuestView, priorityPathState, questMirrorBounds]
 	);
+	activeBoardRef.current = activeBoard;
 
 	useEffect(() => {
 		if (isQuestView && !questViewValidation.canEnter) {
@@ -819,19 +825,21 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 
 	const handleTextChange = useCallback(
 		(nodeId: string, text: string) => {
-			if (!board || isQuestView) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard || isQuestView) {
 				return;
 			}
 
-			const existingNode = board.nodes.find((node) => node.id === nodeId);
+			const existingNode = currentBoard.nodes.find((node) => node.id === nodeId);
 
 			if (!existingNode) {
 				return;
 			}
 
 			void persistBoard({
-				...board,
-				nodes: board.nodes.map((node) => node.id === nodeId
+				...currentBoard,
+				nodes: currentBoard.nodes.map((node) => node.id === nodeId
 					? {
 						...node,
 						data: {
@@ -842,24 +850,26 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					: node)
 			});
 		},
-		[board, isQuestView, persistBoard]
+		[isQuestView, persistBoard]
 	);
 
 	const handleCompletedChange = useCallback(
 		(nodeId: string, completed: boolean) => {
-			if (!board) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard) {
 				return;
 			}
 
-			const activeNode = activeBoard?.nodes.find((node) => node.id === nodeId);
+			const activeNode = activeBoardRef.current?.nodes.find((node) => node.id === nodeId);
 
 			if (activeNode?.data.locked) {
 				return;
 			}
 
 			void persistBoard({
-				...board,
-				nodes: board.nodes.map((node) => node.id === nodeId
+				...currentBoard,
+				nodes: currentBoard.nodes.map((node) => node.id === nodeId
 					? {
 						...node,
 						data: {
@@ -870,28 +880,30 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					: node)
 			});
 		},
-		[activeBoard?.nodes, board, persistBoard]
+		[persistBoard]
 	);
 
 	const handlePriorityChange = useCallback(
 		(nodeId: string, priority: TechTreePriority) => {
-			if (!board || isQuestView) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard || isQuestView) {
 				return;
 			}
 
-			const existingNode = board.nodes.find((node) => node.id === nodeId);
+			const existingNode = currentBoard.nodes.find((node) => node.id === nodeId);
 
 			if (!existingNode) {
 				return;
 			}
 
-			if (priority === "goal" && board.nodes.some((node) => node.id !== nodeId && node.data.priority === "goal")) {
+			if (priority === "goal" && currentBoard.nodes.some((node) => node.id !== nodeId && node.data.priority === "goal")) {
 				return;
 			}
 
 			void persistBoard({
-				...board,
-				nodes: board.nodes.map((node) => node.id === nodeId
+				...currentBoard,
+				nodes: currentBoard.nodes.map((node) => node.id === nodeId
 					? {
 						...node,
 						data: {
@@ -904,16 +916,18 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					: node)
 			});
 		},
-		[board, isQuestView, persistBoard]
+		[isQuestView, persistBoard]
 	);
 
 	const handlePriorityOrderChange = useCallback(
 		(nodeId: string, priorityOrder: number) => {
-			if (!board || isQuestView) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard || isQuestView) {
 				return;
 			}
 
-			const existingNode = board.nodes.find((node) => node.id === nodeId);
+			const existingNode = currentBoard.nodes.find((node) => node.id === nodeId);
 
 			if (!existingNode) {
 				return;
@@ -922,8 +936,8 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 			const nextPriorityOrder = clampPriorityOrder(priorityOrder);
 
 			void persistBoard({
-				...board,
-				nodes: board.nodes.map((node) => node.id === nodeId
+				...currentBoard,
+				nodes: currentBoard.nodes.map((node) => node.id === nodeId
 					? {
 						...node,
 						data: {
@@ -934,32 +948,36 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					: node)
 			});
 		},
-		[board, isQuestView, persistBoard]
+		[isQuestView, persistBoard]
 	);
 
 	const handleDeleteEdge = useCallback(
 		(edgeId: string) => {
-			if (!board || isQuestView) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard || isQuestView) {
 				return;
 			}
 
 			void persistBoard({
-				...board,
-				edges: board.edges.filter((edge) => edge.id !== edgeId)
+				...currentBoard,
+				edges: currentBoard.edges.filter((edge) => edge.id !== edgeId)
 			});
 		},
-		[board, isQuestView, persistBoard]
+		[isQuestView, persistBoard]
 	);
 
 	const handleReverseEdge = useCallback(
 		(edgeId: string) => {
-			if (!board || isQuestView) {
+			const currentBoard = boardRef.current;
+
+			if (!currentBoard || isQuestView) {
 				return;
 			}
 
 			void persistBoard({
-				...board,
-				edges: board.edges.map((edge) => {
+				...currentBoard,
+				edges: currentBoard.edges.map((edge) => {
 					if (edge.id !== edgeId) {
 						return edge;
 					}
@@ -972,11 +990,11 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 						targetHandle: normalizeHandleId(edge.sourceHandle, "handle-left")
 					};
 
-					return isAllowedEdgeForNodes(board.nodes, reversedEdge) ? reversedEdge : edge;
+					return isAllowedEdgeForNodes(currentBoard.nodes, reversedEdge) ? reversedEdge : edge;
 				})
 			});
 		},
-		[board, isQuestView, persistBoard]
+		[isQuestView, persistBoard]
 	);
 
 	const flowNodes = useMemo(
@@ -986,6 +1004,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 			}
 
 			const goalNodeCount = activeBoard.nodes.reduce((count, node) => count + (node.data.priority === "goal" ? 1 : 0), 0);
+			const nextNodeIds = new Set<string>();
 			const nextNodes: TechTreeNode[] = activeBoard.nodes.map((node) => {
 				const locked = Boolean(node.data.locked);
 				const isGoal = node.data.priority === "goal";
@@ -994,8 +1013,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				const height = getNodeDisplayHeight(node);
 				const canEditStructure = !isQuestView && !locked;
 				const canMoveNode = isQuestView || canEditStructure;
-
-				return {
+				const nextNode: TechTreeNode = {
 					...node,
 					width,
 					height,
@@ -1026,27 +1044,38 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 						isQuestView
 					}
 				};
+
+				nextNodeIds.add(nextNode.id);
+				return getCachedFlowNode(flowNodeCacheRef.current, nextNode);
 			});
 
 			if (isPlacingNode && placementFlowPosition && !isQuestView) {
-				nextNodes.push(createPlacementPreviewNode(placementFlowPosition));
+				const placementPreviewNode = createPlacementPreviewNode(placementFlowPosition);
+				nextNodeIds.add(placementPreviewNode.id);
+				nextNodes.push(getCachedFlowNode(flowNodeCacheRef.current, placementPreviewNode));
 			}
 
+			pruneCache(flowNodeCacheRef.current, nextNodeIds);
 			return nextNodes;
 		},
 		[activeBoard, handleCompletedChange, handlePriorityChange, handlePriorityOrderChange, handleTextChange, isPlacingNode, isQuestView, placementFlowPosition]
 	);
 
+	const flowNodesById = useMemo(
+		() => new Map(flowNodes.map((node) => [node.id, node])),
+		[flowNodes]
+	);
+
 	const flowEdges = useMemo(
 		() => {
-			const nodesById = new Map(flowNodes.map((node) => [node.id, node]));
 			const selectedNodeCount = flowNodes.filter((node) => node.selected).length;
 			const selectedEdgeCount = activeBoard?.edges.filter((edge) => edge.selected).length ?? 0;
 			const showSelectedEdgeToolbar = selectedNodeCount === 0 && selectedEdgeCount === 1;
+			const nextEdgeIds = new Set<string>();
 
-			return activeBoard?.edges.flatMap((edge) => {
-				const source = nodesById.get(edge.source);
-				const target = nodesById.get(edge.target);
+			const nextEdges = activeBoard?.edges.flatMap((edge) => {
+				const source = flowNodesById.get(edge.source);
+				const target = flowNodesById.get(edge.target);
 
 				if (!source || !target || !isAllowedDisplayEdge(source, target, isQuestView)) {
 					return [];
@@ -1060,8 +1089,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					.join(" ");
 				const edgeMarkerColor = getEdgeMarkerColor(edgeClassName);
 				const isStraight = isStraightQuestLine(edgeClassName);
-
-				return [{
+				const nextEdge: Edge = {
 					...edge,
 					type: "techTreeEdge",
 					sourceHandle: edgeHandles.sourceHandle,
@@ -1085,10 +1113,21 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					},
 					className: edgeClassName,
 					zIndex: getEdgeZIndex(edgeClassName)
-				}];
+				};
+
+				nextEdgeIds.add(nextEdge.id);
+				return [getCachedFlowEdge(flowEdgeCacheRef.current, nextEdge)];
 			}) ?? [];
+
+			pruneCache(flowEdgeCacheRef.current, nextEdgeIds);
+			return nextEdges;
 		},
-		[activeBoard?.edges, flowNodes, handleDeleteEdge, handleReverseEdge, isQuestView, priorityPathState]
+		[activeBoard?.edges, flowNodes, flowNodesById, handleDeleteEdge, handleReverseEdge, isQuestView, priorityPathState]
+	);
+
+	const flowConnectionKeys = useMemo(
+		() => new Set(flowEdges.map(getConnectionKey)),
+		[flowEdges]
 	);
 
 	const handleNodesChange = useCallback(
@@ -1359,10 +1398,10 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 			&& connection.source
 			&& connection.target
 			&& connection.source !== connection.target
-			&& isAllowedConnectionForNodes(flowNodes, connection)
-			&& !flowEdges.some((edge) => isSameConnection(edge, connection))
+			&& isAllowedConnectionForNodeMap(flowNodesById, connection)
+			&& !flowConnectionKeys.has(getConnectionKey(connection))
 		),
-		[flowEdges, flowNodes, isQuestView]
+		[flowConnectionKeys, flowNodesById, isQuestView]
 	);
 
 	const sliceHoveredEdge = useCallback(
@@ -1422,6 +1461,10 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		},
 		[board, isQuestView, persistBoard, reactFlow]
 	);
+
+	const toggleFocusMode = useCallback(() => {
+		setIsFocusMode((isActive) => !isActive);
+	}, []);
 
 	const toggleNodePlacementMode = useCallback(
 		() => {
@@ -1963,16 +2006,14 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					) : null}
 				</div>
 			</div>
-			<div className="tech-tree-focus-toggle nodrag nowheel">
+			<div className="tech-tree-board-toolbar nodrag nowheel nopan">
 				<button
 					type="button"
-					className={isFocusMode ? "is-active" : ""}
+					className={["tech-tree-focus-mode-button", isFocusMode ? "is-active" : ""].filter(Boolean).join(" ")}
 					aria-pressed={isFocusMode}
-					onClick={() => {
-						setIsFocusMode((isActive) => !isActive);
-					}}
+					onClick={toggleFocusMode}
 				>
-					focus mode
+					Focus mode
 				</button>
 			</div>
 			<ReactFlow
@@ -1991,9 +2032,13 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				snapGrid={[20, 20]}
 				deleteKeyCode={null}
 				panOnDrag={[0]}
+				panOnScroll={false}
+				zoomOnScroll
+				zoomOnPinch
 				selectionKeyCode={null}
 				selectionOnDrag={false}
 				zoomOnDoubleClick={false}
+				onlyRenderVisibleElements
 				onNodesChange={handleNodesChange}
 				onEdgesChange={handleEdgesChange}
 				onNodeDragStop={persistTransientBoard}
@@ -2067,7 +2112,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	);
 }
 
-function TechNode({ id, data, selected }: NodeProps<TechTreeNode>) {
+function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 	const noteRef = useRef<HTMLDivElement | null>(null);
 	const nodeData = data;
 	const locked = Boolean(nodeData.locked);
@@ -2197,7 +2242,7 @@ function TechNode({ id, data, selected }: NodeProps<TechTreeNode>) {
 			<div className="tech-tree-node__body">
 				<div
 					ref={noteRef}
-					className="tech-tree-note nodrag"
+					className="tech-tree-note nodrag nowheel"
 					contentEditable={canEditNode}
 					suppressContentEditableWarning
 					onBlur={(event) => {
@@ -2241,6 +2286,14 @@ function TechNode({ id, data, selected }: NodeProps<TechTreeNode>) {
 	);
 }
 
+const TechNode = React.memo(TechNodeComponent, areTechNodePropsEqual);
+
+function areTechNodePropsEqual(previous: NodeProps<TechTreeNode>, next: NodeProps<TechTreeNode>): boolean {
+	return previous.id === next.id
+		&& previous.selected === next.selected
+		&& areTechTreeNodeDataEquivalent(previous.data, next.data);
+}
+
 function getMinimumNodeWidth(node: TechTreeNode): number {
 	const width = typeof node.width === "number"
 		? node.width
@@ -2263,6 +2316,113 @@ function getNodeDisplayHeight(node: TechTreeNode): number {
 			: MIN_NODE_HEIGHT;
 
 	return height <= LEGACY_NODE_HEIGHT ? MIN_NODE_HEIGHT : Math.max(height, MIN_NODE_HEIGHT);
+}
+
+function getCachedFlowNode(cache: Map<string, TechTreeNode>, nextNode: TechTreeNode): TechTreeNode {
+	const cachedNode = cache.get(nextNode.id);
+
+	if (cachedNode && areFlowNodesEquivalent(cachedNode, nextNode)) {
+		return cachedNode;
+	}
+
+	cache.set(nextNode.id, nextNode);
+	return nextNode;
+}
+
+function areFlowNodesEquivalent(first: TechTreeNode, second: TechTreeNode): boolean {
+	return first.id === second.id
+		&& first.type === second.type
+		&& first.position.x === second.position.x
+		&& first.position.y === second.position.y
+		&& first.width === second.width
+		&& first.height === second.height
+		&& first.selected === second.selected
+		&& first.dragging === second.dragging
+		&& first.draggable === second.draggable
+		&& first.dragHandle === second.dragHandle
+		&& first.selectable === second.selectable
+		&& first.connectable === second.connectable
+		&& first.deletable === second.deletable
+		&& first.focusable === second.focusable
+		&& first.zIndex === second.zIndex
+		&& first.style?.width === second.style?.width
+		&& first.style?.height === second.style?.height
+		&& first.style?.pointerEvents === second.style?.pointerEvents
+		&& areTechTreeNodeDataEquivalent(first.data, second.data);
+}
+
+function areTechTreeNodeDataEquivalent(first: TechTreeNode["data"], second: TechTreeNode["data"]): boolean {
+	return first.text === second.text
+		&& first.visibleText === second.visibleText
+		&& first.title === second.title
+		&& first.priority === second.priority
+		&& first.priorityOrder === second.priorityOrder
+		&& first.status === second.status
+		&& first.statusKind === second.statusKind
+		&& first.completed === second.completed
+		&& first.locked === second.locked
+		&& first.hasCheckedNeighbor === second.hasCheckedNeighbor
+		&& first.hasQuestPrerequisite === second.hasQuestPrerequisite
+		&& first.progressState === second.progressState
+		&& first.questViewMode === second.questViewMode
+		&& first.isQuestView === second.isQuestView
+		&& first.isPlacementPreview === second.isPlacementPreview
+		&& first.hasOtherGoalNode === second.hasOtherGoalNode
+		&& first.onTextChange === second.onTextChange
+		&& first.onCompletedChange === second.onCompletedChange
+		&& first.onPriorityChange === second.onPriorityChange
+		&& first.onPriorityOrderChange === second.onPriorityOrderChange;
+}
+
+function getCachedFlowEdge(cache: Map<string, Edge>, nextEdge: Edge): Edge {
+	const cachedEdge = cache.get(nextEdge.id);
+
+	if (cachedEdge && areFlowEdgesEquivalent(cachedEdge, nextEdge)) {
+		return cachedEdge;
+	}
+
+	cache.set(nextEdge.id, nextEdge);
+	return nextEdge;
+}
+
+function areFlowEdgesEquivalent(first: Edge, second: Edge): boolean {
+	return first.id === second.id
+		&& first.type === second.type
+		&& first.source === second.source
+		&& first.target === second.target
+		&& first.sourceHandle === second.sourceHandle
+		&& first.targetHandle === second.targetHandle
+		&& first.selected === second.selected
+		&& first.className === second.className
+		&& first.zIndex === second.zIndex
+		&& first.interactionWidth === second.interactionWidth
+		&& first.selectable === second.selectable
+		&& first.deletable === second.deletable
+		&& first.reconnectable === second.reconnectable
+		&& getMarkerType(first.markerEnd) === getMarkerType(second.markerEnd)
+		&& getMarkerColor(first.markerEnd) === getMarkerColor(second.markerEnd)
+		&& first.data?.isQuestView === second.data?.isQuestView
+		&& first.data?.isStraight === second.data?.isStraight
+		&& first.data?.isPriorityPath === second.data?.isPriorityPath
+		&& first.data?.showToolbar === second.data?.showToolbar
+		&& first.data?.onDelete === second.data?.onDelete
+		&& first.data?.onReverse === second.data?.onReverse;
+}
+
+function getMarkerType(marker: Edge["markerEnd"]): unknown {
+	return marker && typeof marker === "object" ? marker.type : marker;
+}
+
+function getMarkerColor(marker: Edge["markerEnd"]): string | undefined {
+	return marker && typeof marker === "object" ? marker.color ?? undefined : undefined;
+}
+
+function pruneCache<T extends { id: string }>(cache: Map<string, T>, activeIds: Set<string>): void {
+	for (const id of cache.keys()) {
+		if (!activeIds.has(id)) {
+			cache.delete(id);
+		}
+	}
 }
 
 function getSelectionBoxStyle(selection: RightDragSelectionState): React.CSSProperties {
@@ -3106,19 +3266,19 @@ function isNodeLayoutOnlyChange(changes: NodeChange<TechTreeNode>[]): boolean {
 
 function shouldIgnoreRightDragSelectionTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
 	));
 }
 
 function shouldIgnoreNodePlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 
 function shouldIgnoreAltPlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-focus-toggle, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 
@@ -3975,6 +4135,18 @@ function isAllowedConnectionForNodes(nodes: TechTreeNode[], connection: Connecti
 	);
 }
 
+function isAllowedConnectionForNodeMap(nodesById: Map<string, TechTreeNode>, connection: ConnectionLike): boolean {
+	const source = nodesById.get(connection.source);
+	const target = nodesById.get(connection.target);
+
+	return Boolean(
+		source
+		&& target
+		&& source.id !== target.id
+		&& isAllowedPriorityEdge(source, target)
+	);
+}
+
 function isAllowedDisplayEdge(source: TechTreeNode, target: TechTreeNode, isQuestView: boolean): boolean {
 	return Boolean(
 		source
@@ -4096,6 +4268,10 @@ function isSameConnection(edge: Edge, connection: ConnectionLike): boolean {
 		&& edge.target === connection.target
 		&& normalizeHandleId(edge.sourceHandle, "handle-right") === normalizeHandleId(connection.sourceHandle, "handle-right")
 		&& normalizeHandleId(edge.targetHandle, "handle-left") === normalizeHandleId(connection.targetHandle, "handle-left");
+}
+
+function getConnectionKey(connection: ConnectionLike): string {
+	return `${connection.source}:${normalizeHandleId(connection.sourceHandle, "handle-right")}->${connection.target}:${normalizeHandleId(connection.targetHandle, "handle-left")}`;
 }
 
 function selectOnlyEdge(board: TechTreeBoard, edgeId: string): TechTreeBoard {

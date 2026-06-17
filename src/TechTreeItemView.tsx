@@ -1,8 +1,6 @@
 import React from "react";
 import {
-	Modal,
 	Notice,
-	Setting,
 	SuggestModal,
 	TextFileView,
 	type App,
@@ -14,13 +12,11 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import {
 	TechTreeManager,
-	type CreateTechTreeNodeOptions,
 	getBoardName,
 	isCanvasPath
 } from "./TechTreeManager";
 import { TechTreeApp, TechTreeBoardPicker } from "./TechTreeView";
 import { TECH_TREE_ICON, TECH_TREE_VIEW_TYPE } from "./constants";
-import type { TechTreePriority } from "./types";
 
 export interface TechTreePluginHost {
 	app: App;
@@ -94,14 +90,12 @@ export class TechTreeItemView extends TextFileView {
 		await super.onOpen();
 		this.contentEl.empty();
 		this.contentEl.addClass("tech-tree-view-container");
-		this.addAction("plus-circle", "Add tech tree node", () => {
-			this.openAddNodeModal();
+
+		this.addAction("folder-open", "Open board", () => {
+			void this.plugin.openBoardPicker(this.leaf);
 		});
 		this.addAction("layout-dashboard", "Open canvas view", () => {
 			this.openCanvasView();
-		});
-		this.addAction("folder-open", "Open board", () => {
-			void this.plugin.openBoardPicker(this.leaf);
 		});
 		this.render();
 	}
@@ -163,16 +157,6 @@ export class TechTreeItemView extends TextFileView {
 		}
 
 		void this.plugin.openCanvasView(this.file.path, this.leaf);
-	}
-
-	private openAddNodeModal(): void {
-		if (!this.file) {
-			new Notice("Open a tech tree board first.");
-			return;
-		}
-
-		const boardPath = this.file.path;
-		new TechTreeAddNodeModal(this.plugin.app, (options) => this.manager.addNodeToBoard(boardPath, options)).open();
 	}
 }
 
@@ -240,84 +224,6 @@ export class TechTreeBoardSuggestModal extends SuggestModal<TechTreeBoardSuggest
 			getBoardName(file.path).toLowerCase() === lowerName
 			|| getBoardDisplayPath(file.path).toLowerCase() === lowerName
 		));
-	}
-}
-
-class TechTreeAddNodeModal extends Modal {
-	private priority: TechTreePriority = "necessary";
-	private text = "truth";
-
-	constructor(
-		app: App,
-		private readonly onSubmit: (options: CreateTechTreeNodeOptions) => Promise<unknown>
-	) {
-		super(app);
-	}
-
-	onOpen(): void {
-		const { contentEl } = this;
-		contentEl.empty();
-		contentEl.addClass("tech-tree-add-node-modal");
-		contentEl.createEl("h2", { text: "Add tech tree node" });
-
-		new Setting(contentEl)
-			.setName("Priority")
-			.addDropdown((dropdown) => {
-				dropdown
-					.addOption("quest", "Quest")
-					.addOption("medium impact", "Medium impact")
-					.addOption("necessary", "Necessary")
-					.addOption("goal", "Goal")
-					.setValue(this.priority)
-					.onChange((value) => {
-						this.priority = value as TechTreePriority;
-					});
-			});
-
-		new Setting(contentEl)
-			.setName("Text")
-			.addTextArea((textArea) => {
-				textArea
-					.setValue(this.text)
-					.onChange((value) => {
-						this.text = value;
-					});
-				textArea.inputEl.rows = 6;
-				textArea.inputEl.addClass("tech-tree-add-node-modal__text");
-			});
-
-		new Setting(contentEl)
-			.addButton((button) => {
-				button
-					.setButtonText("Add node")
-					.setCta()
-					.onClick(() => {
-						void this.submit();
-					});
-			})
-			.addButton((button) => {
-				button
-					.setButtonText("Cancel")
-					.onClick(() => this.close());
-			});
-	}
-
-	private async submit(): Promise<void> {
-		if (!this.text.trim()) {
-			new Notice("Add node text first.");
-			return;
-		}
-
-		try {
-			await this.onSubmit({
-				priority: this.priority,
-				text: this.text
-			});
-			this.close();
-		} catch (error) {
-			console.error("Failed to add tech tree node", error);
-			new Notice("Unable to add tech tree node.");
-		}
 	}
 }
 

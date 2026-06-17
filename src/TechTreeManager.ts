@@ -190,16 +190,6 @@ export class TechTreeManager {
 		return file;
 	}
 
-	async addNodeToBoard(path: string, options: CreateTechTreeNodeOptions): Promise<TechTreeBoard> {
-		const board = this.boards.get(path) ?? await this.loadBoard(path);
-		const position = getNextNodePosition(board.nodes);
-
-		return this.updateBoard(path, {
-			...board,
-			nodes: [...board.nodes, createNode(position, options)]
-		});
-	}
-
 	async getBoardFiles(): Promise<TFile[]> {
 		const files = this.getCanvasFiles();
 		const checks = await Promise.all(files.map(async (file) => ({
@@ -461,23 +451,6 @@ function createConfiguredNodeText(options: CreateTechTreeNodeOptions): string {
 	return updateNodeVisibleText(getDefaultNodeText("Untitled note", priority), visibleText);
 }
 
-function getNextNodePosition(nodes: TechTreeNode[]): XYPosition {
-	if (nodes.length === 0) {
-		return { x: 80, y: 80 };
-	}
-
-	const rightEdge = Math.max(...nodes.map((node) => {
-		const width = getNumber(node.width, getNumber(node.measured?.width, DEFAULT_NODE_WIDTH));
-		return node.position.x + width;
-	}));
-	const topEdge = Math.min(...nodes.map((node) => node.position.y));
-
-	return {
-		x: rightEdge + 80,
-		y: topEdge
-	};
-}
-
 function parseCanvas(rawCanvas: string): CanvasFile {
 	try {
 		const parsed = JSON.parse(rawCanvas) as Partial<CanvasFile>;
@@ -502,9 +475,10 @@ function rawCanvasHasTechTreeGoal(rawCanvas: string): boolean {
 
 function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 	const nodes = canvas.nodes.map(toFlowNode);
+	const nodeIds = new Set(nodes.map((node) => node.id));
 	const canvasEdges = normalizeEdgesForBoard(nodes, canvas.edges
 		.map(toFlowEdge)
-		.filter((edge) => nodes.some((node) => node.id === edge.source) && nodes.some((node) => node.id === edge.target)));
+		.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)));
 	const metadataEdges = getMetadataEdges(nodes);
 	const edges = metadataEdges.length > 0 ? metadataEdges : canvasEdges;
 	const nodesWithImpliedPriorities = applyEdgeImpliedPriorities(nodes, edges);
@@ -646,7 +620,7 @@ function normalizeEdgesForBoard(nodes: TechTreeNode[], edges: Edge[]): Edge[] {
 			targetHandle: edgeHandles.targetHandle
 		};
 
-		if (!isAllowedEdgeForNodes(nodes, normalizedEdge)) {
+		if (!isAllowedEdge(source, target)) {
 			continue;
 		}
 
@@ -727,7 +701,7 @@ function getMetadataEdges(nodes: TechTreeNode[]): Edge[] {
 				targetHandle: edgeHandles.targetHandle
 			};
 
-			if (!isAllowedEdgeForNodes(nodes, normalizedEdge)) {
+			if (!isAllowedEdge(node, target)) {
 				continue;
 			}
 
@@ -967,10 +941,7 @@ function getRuntimeStatusKind(status: string): TechTreeStatusKind {
 			: "open";
 }
 
-function isAllowedEdgeForNodes(nodes: TechTreeNode[], edge: Edge): boolean {
-	const source = nodes.find((node) => node.id === edge.source);
-	const target = nodes.find((node) => node.id === edge.target);
-
+function isAllowedEdge(source: TechTreeNode | undefined, target: TechTreeNode | undefined): boolean {
 	return Boolean(source && target && source.id !== target.id && isAllowedPriorityEdge(source, target));
 }
 
@@ -1407,7 +1378,31 @@ function getNumber(value: unknown, fallback: number): number {
 }
 
 function cloneBoard(board: TechTreeBoard): TechTreeBoard {
-	return JSON.parse(JSON.stringify(board)) as TechTreeBoard;
+	return {
+		...board,
+		nodes: board.nodes.map(cloneNode),
+		edges: board.edges.map(cloneEdge)
+	};
+}
+
+function cloneNode(node: TechTreeNode): TechTreeNode {
+	return {
+		...node,
+		position: { ...node.position },
+		measured: node.measured ? { ...node.measured } : node.measured,
+		style: node.style ? { ...node.style } : node.style,
+		data: { ...node.data }
+	};
+}
+
+function cloneEdge(edge: Edge): Edge {
+	return {
+		...edge,
+		data: edge.data ? { ...edge.data } : edge.data,
+		markerStart: edge.markerStart && typeof edge.markerStart === "object" ? { ...edge.markerStart } : edge.markerStart,
+		markerEnd: edge.markerEnd && typeof edge.markerEnd === "object" ? { ...edge.markerEnd } : edge.markerEnd,
+		style: edge.style ? { ...edge.style } : edge.style
+	};
 }
 
 function createId(prefix: string): string {
