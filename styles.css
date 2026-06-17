@@ -1030,18 +1030,30 @@
 	max-width: 100%;
 	height: 32px;
 	padding: 0 28px 0 12px;
-	border: 2px solid rgba(255, 255, 255, 0.1);
+	border: 2px solid rgba(147, 197, 253, 0.24);
 	border-radius: 8px;
-	background-color: rgba(0, 0, 0, 0.18);
+	background-color: rgba(17, 24, 39, 0.72);
 	color: var(--tech-tree-card-text);
 	font-size: 12px;
 	font-weight: 650;
 	cursor: pointer;
+	color-scheme: dark;
 }
 
 .tech-tree-node__priority select:focus-visible {
-	border-color: var(--interactive-accent);
+	border-color: var(--tech-tree-quest);
 	outline: none;
+	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
+}
+
+.tech-tree-node__priority select option {
+	background: #222831;
+	color: #f2f5f8;
+}
+
+.tech-tree-node__priority select option:checked {
+	background: #34475f;
+	color: #ffffff;
 }
 
 .tech-tree-node__priority select:disabled {
