@@ -1,6 +1,6 @@
 import { Notice, TFile, type App, type Plugin, type TFolder } from "obsidian";
 import type { Edge, XYPosition } from "@xyflow/react";
-import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressState, TechTreeStatusKind } from "./types";
+import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressState, TechTreeStatusKind, TechTreeStickyNote } from "./types";
 
 type CanvasSide = "top" | "right" | "bottom" | "left";
 
@@ -38,18 +38,33 @@ type TechTreeConnectionMetadata = {
 
 type BoardListener = (board: TechTreeBoard) => void;
 
+type TechTreePluginData = Record<string, unknown> & {
+	stickyNotes?: Record<string, Partial<TechTreeStickyNote> | undefined>;
+};
+
 export const DEFAULT_BOARD_NAME = "untitled tech-tree";
 const BOARD_EXTENSION = ".canvas";
 const LEGACY_BOARD_SUFFIX = "(metadata).canvas";
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 130;
 const LEGACY_DEFAULT_NODE_HEIGHT = 170;
+const STICKY_NOTE_CANVAS_NODE_ID = "tech-tree-sticky-note";
+const STICKY_NOTE_CANVAS_NODE_MARKER = "tech-tree sticky note";
+const STICKY_NOTE_CANVAS_NODE_WIDTH = 320;
+const STICKY_NOTE_CANVAS_NODE_HEIGHT = 180;
+const STICKY_NOTE_CANVAS_NODE_GAP = 160;
 const SAVE_DELAY_MS = 250;
 const CONNECTIONS_METADATA_KEY = "connections";
 const QUEST_VIEW_METADATA_KEY = "quest view";
 const PRIORITY_ORDER_METADATA_KEY = "priority order";
 const MIN_PRIORITY_ORDER = 0;
 const MAX_PRIORITY_ORDER = 10;
+const DEFAULT_STICKY_NOTE: TechTreeStickyNote = {
+	text: "",
+	x: 24,
+	y: 96,
+	isOpen: false
+};
 const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", CONNECTIONS_METADATA_KEY, QUEST_VIEW_METADATA_KEY]);
 const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status", QUEST_VIEW_METADATA_KEY];
 const METADATA_LINE_PATTERN = /^([a-z][\w -]*):\s*(.*)$/i;
@@ -215,6 +230,35 @@ export class TechTreeManager {
 		return board ? stringifyCanvas(boardToCanvas(board)) : null;
 	}
 
+	async loadStickyNote(path: string): Promise<TechTreeStickyNote> {
+		const board = this.boards.get(path) ?? await this.loadBoard(path);
+		const legacyNote = await this.loadLegacyStickyNote(path);
+
+		if (isDefaultStickyNote(board.stickyNote) && !isDefaultStickyNote(legacyNote)) {
+			const migratedNote = await this.updateStickyNote(path, legacyNote);
+			void this.clearLegacyStickyNote(path);
+			return migratedNote;
+		}
+
+		return cloneStickyNote(board.stickyNote);
+	}
+
+	async updateStickyNote(path: string, note: TechTreeStickyNote): Promise<TechTreeStickyNote> {
+		const normalizedNote = normalizeStickyNote(note);
+		const board = this.boards.get(path) ?? await this.loadBoard(path);
+		const nextBoard = {
+			...board,
+			updatedAt: Date.now(),
+			stickyNote: normalizedNote
+		};
+
+		this.boards.set(path, nextBoard);
+		this.notify(path, nextBoard);
+		this.queueSave(path, nextBoard);
+
+		return cloneStickyNote(normalizedNote);
+	}
+
 	async isTechTreeCanvasFile(file: TFile): Promise<boolean> {
 		if (!isCanvasPath(file.path)) {
 			return false;
@@ -320,6 +364,36 @@ export class TechTreeManager {
 		window.setTimeout(() => this.savingPaths.delete(path), 500);
 	}
 
+	private async loadLegacyStickyNote(path: string): Promise<TechTreeStickyNote> {
+		try {
+			const data = normalizePluginData(await this.plugin.loadData());
+			return normalizeStickyNote(data.stickyNotes?.[path]);
+		} catch (error) {
+			console.error("Failed to load legacy tech tree sticky note", error);
+			return { ...DEFAULT_STICKY_NOTE };
+		}
+	}
+
+	private async clearLegacyStickyNote(path: string): Promise<void> {
+		try {
+			const data = normalizePluginData(await this.plugin.loadData());
+
+			if (!data.stickyNotes?.[path]) {
+				return;
+			}
+
+			const stickyNotes = { ...data.stickyNotes };
+			delete stickyNotes[path];
+
+			await this.plugin.saveData({
+				...data,
+				stickyNotes
+			});
+		} catch (error) {
+			console.error("Failed to clear legacy tech tree sticky note", error);
+		}
+	}
+
 	private notify(path: string, board: TechTreeBoard): void {
 		const listeners = this.listeners.get(path);
 
@@ -363,6 +437,49 @@ export function getBoardName(path: string): string {
 	}
 
 	return fileName.replace(/\.canvas$/i, "") || DEFAULT_BOARD_NAME;
+}
+
+function normalizePluginData(data: unknown): TechTreePluginData {
+	if (!isRecord(data)) {
+		return {};
+	}
+
+	const stickyNotes = isRecord(data.stickyNotes)
+		? Object.fromEntries(Object.entries(data.stickyNotes).map(([path, note]) => [path, normalizeStickyNote(note)]))
+		: undefined;
+
+	return {
+		...data,
+		...(stickyNotes ? { stickyNotes } : {})
+	};
+}
+
+function normalizeStickyNote(note: unknown): TechTreeStickyNote {
+	if (!isRecord(note)) {
+		return { ...DEFAULT_STICKY_NOTE };
+	}
+
+	return {
+		text: typeof note.text === "string" ? note.text : DEFAULT_STICKY_NOTE.text,
+		x: getNumber(note.x, DEFAULT_STICKY_NOTE.x),
+		y: getNumber(note.y, DEFAULT_STICKY_NOTE.y),
+		isOpen: typeof note.isOpen === "boolean" ? note.isOpen : normalizeBooleanMetadata(typeof note.open === "string" ? note.open : undefined)
+	};
+}
+
+function isDefaultStickyNote(note: TechTreeStickyNote): boolean {
+	return note.text === DEFAULT_STICKY_NOTE.text
+		&& note.x === DEFAULT_STICKY_NOTE.x
+		&& note.y === DEFAULT_STICKY_NOTE.y
+		&& note.isOpen === DEFAULT_STICKY_NOTE.isOpen;
+}
+
+function cloneStickyNote(note: TechTreeStickyNote): TechTreeStickyNote {
+	return { ...note };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function createNode(
@@ -427,6 +544,7 @@ function createDefaultBoard(path: string): TechTreeBoard {
 		path,
 		name: getBoardName(path),
 		updatedAt: Date.now(),
+		stickyNote: { ...DEFAULT_STICKY_NOTE },
 		nodes: [outcome, firstNecessary, secondNecessary],
 		edges: [
 			createEdge(outcome.id, firstNecessary.id),
@@ -470,11 +588,14 @@ function parseCanvas(rawCanvas: string): CanvasFile {
 
 function rawCanvasHasTechTreeGoal(rawCanvas: string): boolean {
 	const canvas = parseCanvas(rawCanvas);
-	return canvas.nodes.some((node) => parseNodeText(node.text).priority === "goal");
+	return canvas.nodes.some((node) => !isStickyNoteCanvasNode(node) && parseNodeText(node.text).priority === "goal");
 }
 
 function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
-	const nodes = canvas.nodes.map(toFlowNode);
+	const stickyNote = getStickyNoteFromCanvas(canvas.nodes);
+	const nodes = canvas.nodes
+		.filter((node) => !isStickyNoteCanvasNode(node))
+		.map(toFlowNode);
 	const nodeIds = new Set(nodes.map((node) => node.id));
 	const canvasEdges = normalizeEdgesForBoard(nodes, canvas.edges
 		.map(toFlowEdge)
@@ -488,6 +609,7 @@ function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 		path,
 		name: getBoardName(path),
 		updatedAt: Date.now(),
+		stickyNote,
 		nodes: syncConnectionMetadata(nodesWithImpliedPriorities, normalizedEdges),
 		edges: normalizedEdges
 	});
@@ -495,7 +617,10 @@ function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 
 function boardToCanvas(board: TechTreeBoard): CanvasFile {
 	return {
-		nodes: board.nodes.map(toCanvasNode),
+		nodes: [
+			toStickyNoteCanvasNode(board.stickyNote, board.nodes),
+			...board.nodes.map(toCanvasNode)
+		],
 		edges: board.edges.map(toCanvasEdge)
 	};
 }
@@ -549,6 +674,93 @@ function toCanvasNode(node: TechTreeNode): CanvasTextNode {
 		height: Math.round(height),
 		text: node.data.text
 	};
+}
+
+function toStickyNoteCanvasNode(note: TechTreeStickyNote, nodes: TechTreeNode[]): CanvasTextNode {
+	const position = getStickyNoteCanvasNodePosition(nodes);
+
+	return {
+		id: STICKY_NOTE_CANVAS_NODE_ID,
+		type: "text",
+		x: position.x,
+		y: position.y,
+		width: STICKY_NOTE_CANVAS_NODE_WIDTH,
+		height: STICKY_NOTE_CANVAS_NODE_HEIGHT,
+		text: formatStickyNoteCanvasText(note)
+	};
+}
+
+function getStickyNoteCanvasNodePosition(nodes: TechTreeNode[]): XYPosition {
+	if (nodes.length === 0) {
+		return {
+			x: -STICKY_NOTE_CANVAS_NODE_WIDTH - STICKY_NOTE_CANVAS_NODE_GAP,
+			y: -STICKY_NOTE_CANVAS_NODE_HEIGHT - STICKY_NOTE_CANVAS_NODE_GAP
+		};
+	}
+
+	const left = Math.min(...nodes.map((node) => node.position.x));
+	const top = Math.min(...nodes.map((node) => node.position.y));
+
+	return {
+		x: Math.round(left - STICKY_NOTE_CANVAS_NODE_WIDTH - STICKY_NOTE_CANVAS_NODE_GAP),
+		y: Math.round(top - STICKY_NOTE_CANVAS_NODE_HEIGHT - STICKY_NOTE_CANVAS_NODE_GAP)
+	};
+}
+
+function getStickyNoteFromCanvas(nodes: CanvasTextNode[]): TechTreeStickyNote {
+	const stickyNode = nodes.find(isStickyNoteCanvasNode);
+
+	return stickyNode ? parseStickyNoteCanvasNode(stickyNode) : { ...DEFAULT_STICKY_NOTE };
+}
+
+function isStickyNoteCanvasNode(node: CanvasTextNode): boolean {
+	return node.id === STICKY_NOTE_CANVAS_NODE_ID || normalizeLineEndings(node.text).startsWith(`%% ${STICKY_NOTE_CANVAS_NODE_MARKER}`);
+}
+
+function parseStickyNoteCanvasNode(node: CanvasTextNode): TechTreeStickyNote {
+	const lines = normalizeLineEndings(node.text).split("\n");
+	const metadata = new Map<string, string>();
+	let contentStartIndex = 0;
+
+	if (lines[0]?.trim() === `%% ${STICKY_NOTE_CANVAS_NODE_MARKER}`) {
+		contentStartIndex = lines.length;
+
+		for (let index = 1; index < lines.length; index += 1) {
+			const line = lines[index] ?? "";
+
+			if (line.trim() === "%%") {
+				contentStartIndex = index + 1;
+				break;
+			}
+
+			const match = parseMetadataLine(line);
+
+			if (match) {
+				metadata.set(match.key, match.value);
+			}
+		}
+	}
+
+	return normalizeStickyNote({
+		text: lines.slice(contentStartIndex).join("\n").trimEnd(),
+		x: Number(metadata.get("x")),
+		y: Number(metadata.get("y")),
+		isOpen: normalizeBooleanMetadata(metadata.get("open"))
+	});
+}
+
+function formatStickyNoteCanvasText(note: TechTreeStickyNote): string {
+	const normalizedNote = normalizeStickyNote(note);
+	const content = normalizeLineEndings(normalizedNote.text).trimEnd();
+	const metadataLines = [
+		`%% ${STICKY_NOTE_CANVAS_NODE_MARKER}`,
+		`x: ${Math.round(normalizedNote.x)}`,
+		`y: ${Math.round(normalizedNote.y)}`,
+		`open: ${normalizedNote.isOpen ? "on" : "off"}`,
+		"%%"
+	];
+
+	return content ? `${metadataLines.join("\n")}\n${content}` : metadataLines.join("\n");
 }
 
 function normalizeNodeHeight(height: number): number {
@@ -1380,6 +1592,7 @@ function getNumber(value: unknown, fallback: number): number {
 function cloneBoard(board: TechTreeBoard): TechTreeBoard {
 	return {
 		...board,
+		stickyNote: cloneStickyNote(board.stickyNote),
 		nodes: board.nodes.map(cloneNode),
 		edges: board.edges.map(cloneEdge)
 	};

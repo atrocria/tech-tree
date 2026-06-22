@@ -36,7 +36,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import bonsaiImageUrl from "./assets/bonsai.png";
 import { TechTreeManager, applyNodeState, createNode, updateGoalQuestViewMode, updateNodeCompletionStatus, updateNodePriority, updateNodePriorityOrder, updateNodeVisibleText } from "./TechTreeManager";
-import type { TechTreeBoard, TechTreeNode, TechTreePriority } from "./types";
+import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeStickyNote } from "./types";
 
 type TechTreeAppProps = {
 	boardPath: string;
@@ -52,6 +52,20 @@ type TechTreeBoardPickerProps = {
 	boards: TechTreeBoardChoice[];
 	onCreateBoard: (name?: string) => void;
 	onOpenBoard: (path: string) => void;
+};
+
+type TechTreeViewportControlsProps = {
+	isStickyNoteOpen: boolean;
+	hasStickyNoteContent: boolean;
+	onToggleStickyNote: () => void;
+};
+
+type TechTreeStickyNoteProps = {
+	note: TechTreeStickyNote;
+	shellRef: React.RefObject<HTMLDivElement | null>;
+	onTextChange: (text: string) => void;
+	onPositionDraft: (position: ClientPosition) => void;
+	onPositionCommit: (position: ClientPosition) => void;
 };
 
 type PaneMenuState = {
@@ -76,6 +90,12 @@ type RightDragSelectionState = {
 	startLocal: ClientPosition;
 	currentLocal: ClientPosition;
 	active: boolean;
+};
+
+type StickyNoteDragState = {
+	pointerId: number;
+	startClient: ClientPosition;
+	startPosition: ClientPosition;
 };
 
 type ConnectionLike = {
@@ -241,7 +261,7 @@ const EDGE_MARKER_COLORS = {
 	quest: "#60a5fa",
 	progress: "#f97316",
 	muted: "#7c8490",
-	done: "#ffffff"
+	done: "#22c55e"
 } as const;
 
 // Change edge scenario class names here, then tune the matching body colors in styles.css.
@@ -266,6 +286,51 @@ const EDGE_CLASSES = {
 	questMediumPath: "is-quest-medium-path",
 	questPath: "is-quest-path"
 } as const;
+type EdgeVisualStyle = {
+	markerColor: string;
+	zIndex: number;
+	isStraight?: boolean;
+};
+const EDGE_VISUAL_STYLES: Partial<Record<string, EdgeVisualStyle>> = {
+	[EDGE_CLASSES.priorityPath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 7000 },
+	[EDGE_CLASSES.necessaryComplete]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 6000 },
+	[EDGE_CLASSES.necessaryPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 5000 },
+	[EDGE_CLASSES.necessaryChain]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 4000 },
+	[EDGE_CLASSES.questLockedPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questActivePath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questDoneToDone]: { markerColor: EDGE_MARKER_COLORS.quest, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questDoneToUndone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questGoalPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questMediumDoneToDone]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 20 },
+	[EDGE_CLASSES.questMediumDoneToUndone]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20 },
+	[EDGE_CLASSES.questMediumUndoneToDone]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 20 },
+	[EDGE_CLASSES.questMediumPath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20 },
+	[EDGE_CLASSES.questPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.complete]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 10 },
+	[EDGE_CLASSES.inProgress]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 10 },
+	[EDGE_CLASSES.doneToUndone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 10 },
+	[EDGE_CLASSES.undoneToDone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 10 }
+};
+const EDGE_VISUAL_PRIORITY = [
+	EDGE_CLASSES.priorityPath,
+	EDGE_CLASSES.necessaryComplete,
+	EDGE_CLASSES.necessaryPath,
+	EDGE_CLASSES.necessaryChain,
+	EDGE_CLASSES.questLockedPath,
+	EDGE_CLASSES.questActivePath,
+	EDGE_CLASSES.questDoneToDone,
+	EDGE_CLASSES.questDoneToUndone,
+	EDGE_CLASSES.questGoalPath,
+	EDGE_CLASSES.questMediumDoneToDone,
+	EDGE_CLASSES.questMediumDoneToUndone,
+	EDGE_CLASSES.questMediumUndoneToDone,
+	EDGE_CLASSES.questMediumPath,
+	EDGE_CLASSES.questPath,
+	EDGE_CLASSES.complete,
+	EDGE_CLASSES.inProgress,
+	EDGE_CLASSES.doneToUndone,
+	EDGE_CLASSES.undoneToDone
+];
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 130;
 const LEGACY_NODE_HEIGHT = 170;
@@ -292,6 +357,14 @@ const EDGE_SLICE_BUTTONS_MASK = 4;
 const CONTEXT_MENU_SUPPRESS_MS = 250;
 const BOARD_HISTORY_LIMIT = 2;
 const TRANSIENT_BOARD_UPDATE_DELAY_MS = 33;
+const STICKY_NOTE_SAVE_DELAY_MS = 350;
+const STICKY_NOTE_MARGIN = 12;
+const DEFAULT_STICKY_NOTE: TechTreeStickyNote = {
+	text: "",
+	x: 24,
+	y: 96,
+	isOpen: false
+};
 const MIN_PRIORITY_ORDER = 0;
 const MAX_PRIORITY_ORDER = 10;
 
@@ -375,7 +448,7 @@ const TechTreeOriginBackground = React.memo(function TechTreeOriginBackground() 
 	);
 });
 
-function TechTreeViewportControls() {
+function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onToggleStickyNote }: TechTreeViewportControlsProps) {
 	const reactFlow = useReactFlow<TechTreeNode, Edge>();
 	const { zoom } = useViewport();
 	const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -442,9 +515,25 @@ function TechTreeViewportControls() {
 				pointerEvents: "auto"
 			}}
 		>
+			<button
+				type="button"
+				className={["tech-tree-sticky-note-toggle", isStickyNoteOpen ? "is-active" : "", hasStickyNoteContent ? "has-content" : ""].filter(Boolean).join(" ")}
+				aria-label={isStickyNoteOpen ? "Minimize sticky note" : "Open sticky note"}
+				aria-pressed={isStickyNoteOpen}
+				onClick={onToggleStickyNote}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					width: 34,
+					height: 34,
+					padding: 0
+				}}
+			>
+				<StickyNoteIcon className="tech-tree-sticky-note-icon" />
+			</button>
 			<label
 				className="tech-tree-zoom-slider"
-				title={`Zoom ${zoomPercent}%`}
 				style={{
 					position: "relative",
 					display: "flex",
@@ -492,7 +581,6 @@ function TechTreeViewportControls() {
 			<button
 				type="button"
 				className="tech-tree-fit-view-button"
-				title="Fit board to view"
 				aria-label="Fit board to view"
 				onClick={handleFitView}
 				style={{
@@ -525,12 +613,157 @@ function FitViewIcon({ className }: { className?: string }) {
 	);
 }
 
+function StickyNoteIcon({ className }: { className?: string }) {
+	return (
+		<svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+			<path
+				d="M4.25 2.75h5.55l1.95 1.95v8.55h-7.5zM9.8 2.75V4.7h1.95M6.15 7.2h3.7M6.15 9.2h3.7"
+				fill="none"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="1.35"
+			/>
+		</svg>
+	);
+}
+
 function clampZoom(value: number): number {
 	if (!Number.isFinite(value)) {
 		return 1;
 	}
 
 	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
+
+function TechTreeStickyNote({
+	note,
+	shellRef,
+	onTextChange,
+	onPositionDraft,
+	onPositionCommit
+}: TechTreeStickyNoteProps) {
+	const noteRef = useRef<HTMLDivElement | null>(null);
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const dragRef = useRef<StickyNoteDragState | null>(null);
+	const [isDragging, setIsDragging] = useState(false);
+
+	const getDraggedPosition = useCallback((event: React.PointerEvent<HTMLDivElement>, dragState: StickyNoteDragState): ClientPosition => {
+		return clampStickyNotePosition(
+			{
+				x: dragState.startPosition.x + event.clientX - dragState.startClient.x,
+				y: dragState.startPosition.y + event.clientY - dragState.startClient.y
+			},
+			shellRef.current,
+			noteRef.current
+		);
+	}, [shellRef]);
+
+	const handleHeaderPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		if (event.button !== 0) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		dragRef.current = {
+			pointerId: event.pointerId,
+			startClient: {
+				x: event.clientX,
+				y: event.clientY
+			},
+			startPosition: {
+				x: note.x,
+				y: note.y
+			}
+		};
+		setIsDragging(true);
+	}, [note.x, note.y]);
+
+	const handleHeaderPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		const dragState = dragRef.current;
+
+		if (!dragState || dragState.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		onPositionDraft(getDraggedPosition(event, dragState));
+	}, [getDraggedPosition, onPositionDraft]);
+
+	const finishDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+		const dragState = dragRef.current;
+
+		if (!dragState || dragState.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		}
+
+		dragRef.current = null;
+		setIsDragging(false);
+		onPositionCommit(getDraggedPosition(event, dragState));
+	}, [getDraggedPosition, onPositionCommit]);
+
+	const handleTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (event.key === "Tab") {
+			event.preventDefault();
+			insertTextareaText(event, "\t", onTextChange, textareaRef);
+			return;
+		}
+
+		if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+			return;
+		}
+
+		const continuation = getMarkdownLineContinuation(event.currentTarget.value, event.currentTarget.selectionStart);
+
+		if (!continuation) {
+			return;
+		}
+
+		event.preventDefault();
+		insertTextareaText(event, `\n${continuation}`, onTextChange, textareaRef);
+	}, [onTextChange]);
+
+	return (
+		<div
+			ref={noteRef}
+			className={["tech-tree-sticky-note nodrag nowheel nopan", isDragging ? "is-dragging" : ""].filter(Boolean).join(" ")}
+			style={{
+				left: note.x,
+				top: note.y
+			}}
+		>
+			<div
+				className="tech-tree-sticky-note__header"
+				onPointerDown={handleHeaderPointerDown}
+				onPointerMove={handleHeaderPointerMove}
+				onPointerUp={finishDrag}
+				onPointerCancel={finishDrag}
+			>
+				<GripIcon className="tech-tree-sticky-note__grip" />
+				<span>Sticky note</span>
+			</div>
+			<textarea
+				ref={textareaRef}
+				className="tech-tree-sticky-note__textarea"
+				value={note.text}
+				placeholder={"# Notes\n- [ ] next step\n- bullet\n1. ordered step"}
+				spellCheck
+				onChange={(event) => onTextChange(event.currentTarget.value)}
+				onKeyDown={handleTextKeyDown}
+				onPointerDown={(event) => event.stopPropagation()}
+			/>
+		</div>
+	);
 }
 
 function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
@@ -549,6 +782,11 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const slicedEdgeIdsRef = useRef<Set<string>>(new Set());
 	const flowNodeCacheRef = useRef<Map<string, TechTreeNode>>(new Map());
 	const flowEdgeCacheRef = useRef<Map<string, Edge>>(new Map());
+	const stickyNoteSaveRef = useRef<{ timer: number | null; path: string; note: TechTreeStickyNote | null }>({
+		timer: null,
+		path: boardPath,
+		note: null
+	});
 	const [board, setBoard] = useState<TechTreeBoard | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
@@ -559,8 +797,88 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 	const [isPlacingNode, setIsPlacingNode] = useState(false);
 	const [placementFlowPosition, setPlacementFlowPosition] = useState<XYPosition | null>(null);
 	const [isFocusMode, setIsFocusMode] = useState(false);
+	const [stickyNote, setStickyNote] = useState<TechTreeStickyNote>(() => ({ ...DEFAULT_STICKY_NOTE }));
+	const [isStickyNoteOpen, setIsStickyNoteOpen] = useState(false);
 	const [priorityPathState, setPriorityPathState] = useState<PriorityPathState>(() => createEmptyPriorityPathState());
 	const priorityPathStateRef = useRef<PriorityPathState>(priorityPathState);
+
+	const flushStickyNoteSave = useCallback(() => {
+		const pendingSave = stickyNoteSaveRef.current;
+
+		if (pendingSave.timer !== null) {
+			window.clearTimeout(pendingSave.timer);
+			pendingSave.timer = null;
+		}
+
+		if (!pendingSave.note) {
+			return;
+		}
+
+		const noteToSave = pendingSave.note;
+		const pathToSave = pendingSave.path;
+		pendingSave.note = null;
+
+		void manager.updateStickyNote(pathToSave, noteToSave)
+			.catch((error) => console.error("Failed to save tech tree sticky note", error));
+	}, [manager]);
+
+	const scheduleStickyNoteSave = useCallback((nextNote: TechTreeStickyNote, saveImmediately = false) => {
+		const pendingSave = stickyNoteSaveRef.current;
+
+		if (pendingSave.timer !== null) {
+			window.clearTimeout(pendingSave.timer);
+		}
+
+		stickyNoteSaveRef.current = {
+			timer: null,
+			path: boardPath,
+			note: nextNote
+		};
+
+		if (saveImmediately) {
+			flushStickyNoteSave();
+			return;
+		}
+
+		stickyNoteSaveRef.current.timer = window.setTimeout(() => {
+			stickyNoteSaveRef.current.timer = null;
+			flushStickyNoteSave();
+		}, STICKY_NOTE_SAVE_DELAY_MS);
+	}, [boardPath, flushStickyNoteSave]);
+
+	useEffect(() => {
+		let disposed = false;
+		flushStickyNoteSave();
+		setStickyNote({ ...DEFAULT_STICKY_NOTE });
+		setIsStickyNoteOpen(false);
+
+		manager.loadStickyNote(boardPath)
+			.then((nextNote) => {
+				if (!disposed) {
+					setStickyNote(nextNote);
+					setIsStickyNoteOpen(nextNote.isOpen);
+				}
+			})
+			.catch((loadError: unknown) => {
+				if (!disposed) {
+					console.error("Failed to load tech tree sticky note", loadError);
+				}
+			});
+
+		return () => {
+			disposed = true;
+			flushStickyNoteSave();
+		};
+	}, [boardPath, flushStickyNoteSave, manager]);
+
+	useEffect(() => {
+		if (!board || stickyNoteSaveRef.current.note) {
+			return;
+		}
+
+		setStickyNote(board.stickyNote);
+		setIsStickyNoteOpen(board.stickyNote.isOpen);
+	}, [board]);
 
 	const applyBoardState = useCallback((nextBoard: TechTreeBoard, options: ApplyBoardStateOptions = {}) => {
 		const nextPriorityPathState = options.preservePriorityPath
@@ -1087,8 +1405,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				const edgeClassName = [getEdgeClassName(source, target, isQuestView), isPriorityPath ? EDGE_CLASSES.priorityPath : ""]
 					.filter(Boolean)
 					.join(" ");
-				const edgeMarkerColor = getEdgeMarkerColor(edgeClassName);
-				const isStraight = isStraightQuestLine(edgeClassName);
+				const edgeVisualStyle = getEdgeVisualStyle(edgeClassName);
 				const nextEdge: Edge = {
 					...edge,
 					type: "techTreeEdge",
@@ -1096,7 +1413,7 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					targetHandle: edgeHandles.targetHandle,
 					markerEnd: {
 						type: MarkerType.ArrowClosed,
-						color: edgeMarkerColor
+						color: edgeVisualStyle.markerColor
 					},
 					interactionWidth: edge.interactionWidth ?? 28,
 					selectable: true,
@@ -1105,14 +1422,14 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 					data: {
 						...edge.data,
 						isQuestView,
-						isStraight,
+						isStraight: edgeVisualStyle.isStraight,
 						isPriorityPath,
 						showToolbar: showSelectedEdgeToolbar,
 						onDelete: handleDeleteEdge,
 						onReverse: handleReverseEdge
 					},
 					className: edgeClassName,
-					zIndex: getEdgeZIndex(edgeClassName)
+					zIndex: edgeVisualStyle.zIndex
 				};
 
 				nextEdgeIds.add(nextEdge.id);
@@ -1466,6 +1783,57 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		setIsFocusMode((isActive) => !isActive);
 	}, []);
 
+	const toggleStickyNote = useCallback(() => {
+		setIsStickyNoteOpen((isOpen) => {
+			const nextOpen = !isOpen;
+
+			setStickyNote((currentNote) => {
+				const nextNote = {
+					...currentNote,
+					isOpen: nextOpen
+				};
+
+				scheduleStickyNoteSave(nextNote, true);
+				return nextNote;
+			});
+
+			return nextOpen;
+		});
+	}, [scheduleStickyNoteSave]);
+
+	const handleStickyNoteTextChange = useCallback((text: string) => {
+		setStickyNote((currentNote) => {
+			const nextNote = {
+				...currentNote,
+				text
+			};
+
+			scheduleStickyNoteSave(nextNote);
+			return nextNote;
+		});
+	}, [scheduleStickyNoteSave]);
+
+	const handleStickyNotePositionDraft = useCallback((position: ClientPosition) => {
+		setStickyNote((currentNote) => ({
+			...currentNote,
+			x: position.x,
+			y: position.y
+		}));
+	}, []);
+
+	const handleStickyNotePositionCommit = useCallback((position: ClientPosition) => {
+		setStickyNote((currentNote) => {
+			const nextNote = {
+				...currentNote,
+				x: position.x,
+				y: position.y
+			};
+
+			scheduleStickyNoteSave(nextNote, true);
+			return nextNote;
+		});
+	}, [scheduleStickyNoteSave]);
+
 	const toggleNodePlacementMode = useCallback(
 		() => {
 			if (!board || isQuestView) {
@@ -1675,7 +2043,9 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 		(event: React.PointerEvent<HTMLDivElement>) => {
 			const currentClient = { x: event.clientX, y: event.clientY };
 
-			updatePlacementPositionFromClient(currentClient);
+			if (!shouldIgnoreNodePlacementTarget(event.target)) {
+				updatePlacementPositionFromClient(currentClient);
+			}
 
 			if ((event.buttons & EDGE_SLICE_BUTTONS_MASK) !== 0 && sliceHoveredEdge(event.target)) {
 				event.preventDefault();
@@ -1987,7 +2357,6 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				<div className="tech-tree-quest-toggle">
 					<label
 						className={isQuestToggleDisabled ? "is-disabled" : ""}
-						title={questViewDisabledMessage ?? "go into quest view"}
 					>
 						<input
 							type="checkbox"
@@ -2063,8 +2432,21 @@ function TechTreeCanvas({ boardPath, manager }: TechTreeAppProps) {
 				fitViewOptions={{ padding: FIT_VIEW_PADDING }}
 			>
 				<TechTreeOriginBackground />
-				<TechTreeViewportControls />
+				<TechTreeViewportControls
+					isStickyNoteOpen={isStickyNoteOpen}
+					hasStickyNoteContent={stickyNote.text.trim().length > 0}
+					onToggleStickyNote={toggleStickyNote}
+				/>
 			</ReactFlow>
+			{isStickyNoteOpen ? (
+				<TechTreeStickyNote
+					note={stickyNote}
+					shellRef={shellRef}
+					onTextChange={handleStickyNoteTextChange}
+					onPositionDraft={handleStickyNotePositionDraft}
+					onPositionCommit={handleStickyNotePositionCommit}
+				/>
+			) : null}
 			{rightDragSelection?.active ? (
 				<div
 					className="tech-tree-drag-selection"
@@ -2184,10 +2566,10 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 				/>
 			))}
 			<div className="tech-tree-node__header">
-				<div className="tech-tree-node__drag-handle" title="Move node" aria-label="Move node">
+				<div className="tech-tree-node__drag-handle" aria-label="Move node">
 					<GripIcon className="tech-tree-node__drag-icon" />
 				</div>
-				<label className="tech-tree-node__priority nodrag nowheel" title="Priority">
+				<label className="tech-tree-node__priority nodrag nowheel">
 					<select
 						aria-label="Priority"
 						value={nodeData.priority}
@@ -2215,9 +2597,10 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 						))}
 					</select>
 				</label>
-				<label className="tech-tree-node__done nodrag nowheel" title="Mark done">
+				<label className="tech-tree-node__done nodrag nowheel">
 					<input
 						type="checkbox"
+						aria-label={completed ? "Mark as undone" : "Mark as done"}
 						checked={completed}
 						disabled={!canToggleCompleted}
 						onChange={(event) => {
@@ -2235,7 +2618,7 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 				</label>
 			</div>
 			{locked ? (
-				<div className="tech-tree-node__lock" aria-label="Locked until previous node is done" title="Locked until previous node is done">
+				<div className="tech-tree-node__lock" aria-label="Locked until previous node is done">
 					<span aria-hidden="true" />
 				</div>
 			) : null}
@@ -2257,7 +2640,7 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 				</div>
 			</div>
 			{showsPriorityOrder ? (
-				<label className="tech-tree-node__priority-order nodrag nowheel" title="Path priority">
+				<label className="tech-tree-node__priority-order nodrag nowheel">
 					<input
 						type="number"
 						aria-label="Path priority"
@@ -3266,19 +3649,19 @@ function isNodeLayoutOnlyChange(changes: NodeChange<TechTreeNode>[]): boolean {
 
 function shouldIgnoreRightDragSelectionTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-sticky-note, .tech-tree-edge-toolbar, .react-flow__controls, .tech-tree-node__priority, .tech-tree-node__done"
 	));
 }
 
 function shouldIgnoreNodePlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-sticky-note, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 
 function shouldIgnoreAltPlacementTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && Boolean(target.closest(
-		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
+		".tech-tree-pane-menu, .tech-tree-mode-toggle, .tech-tree-board-toolbar, .tech-tree-viewport-controls, .tech-tree-sticky-note, .tech-tree-edge-toolbar, .react-flow__controls, button, input, select, textarea"
 	));
 }
 
@@ -3878,6 +4261,77 @@ function getLocalMenuPosition(
 	};
 }
 
+function clampStickyNotePosition(
+	position: ClientPosition,
+	shell: HTMLElement | null,
+	note: HTMLElement | null
+): ClientPosition {
+	if (!shell) {
+		return position;
+	}
+
+	const shellRect = shell.getBoundingClientRect();
+	const noteWidth = note?.offsetWidth ?? 0;
+	const noteHeight = note?.offsetHeight ?? 0;
+	const maxX = Math.max(STICKY_NOTE_MARGIN, shellRect.width - noteWidth - STICKY_NOTE_MARGIN);
+	const maxY = Math.max(STICKY_NOTE_MARGIN, shellRect.height - noteHeight - STICKY_NOTE_MARGIN);
+
+	return {
+		x: Math.min(maxX, Math.max(STICKY_NOTE_MARGIN, position.x)),
+		y: Math.min(maxY, Math.max(STICKY_NOTE_MARGIN, position.y))
+	};
+}
+
+function insertTextareaText(
+	event: React.KeyboardEvent<HTMLTextAreaElement>,
+	insertedText: string,
+	onTextChange: (text: string) => void,
+	textareaRef: React.RefObject<HTMLTextAreaElement | null>
+): void {
+	const textarea = event.currentTarget;
+	const selectionStart = textarea.selectionStart;
+	const selectionEnd = textarea.selectionEnd;
+	const nextText = `${textarea.value.slice(0, selectionStart)}${insertedText}${textarea.value.slice(selectionEnd)}`;
+	const nextCursor = selectionStart + insertedText.length;
+
+	onTextChange(nextText);
+	window.requestAnimationFrame(() => {
+		const currentTextarea = textareaRef.current;
+
+		if (!currentTextarea) {
+			return;
+		}
+
+		currentTextarea.selectionStart = nextCursor;
+		currentTextarea.selectionEnd = nextCursor;
+	});
+}
+
+function getMarkdownLineContinuation(value: string, cursor: number): string | null {
+	const lineStart = value.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+	const line = value.slice(lineStart, cursor);
+	const checklistMatch = /^(\s*)([-*])\s+\[[ xX]\]\s+/.exec(line);
+
+	if (checklistMatch) {
+		return `${checklistMatch[1] ?? ""}${checklistMatch[2] ?? "-"} [ ] `;
+	}
+
+	const bulletMatch = /^(\s*)([-*])\s+/.exec(line);
+
+	if (bulletMatch) {
+		return `${bulletMatch[1] ?? ""}${bulletMatch[2] ?? "-"} `;
+	}
+
+	const orderedMatch = /^(\s*)(\d+)[.)]\s+/.exec(line);
+
+	if (orderedMatch) {
+		const nextNumber = Number(orderedMatch[2] ?? "0") + 1;
+		return `${orderedMatch[1] ?? ""}${nextNumber}. `;
+	}
+
+	return null;
+}
+
 function normalizeHandleId(handleId: string | null | undefined, fallback: string): string {
 	if (!handleId || handleId === "out") {
 		return fallback;
@@ -3987,140 +4441,16 @@ function getEdgeClassName(source: TechTreeNode | undefined, target: TechTreeNode
 	return className.join(" ");
 }
 
-function getEdgeMarkerColor(className: string): string {
-	if (hasEdgeClass(className, EDGE_CLASSES.priorityPath)) {
-		return EDGE_MARKER_COLORS.progress;
-	}
+function getEdgeVisualStyle(className: string): EdgeVisualStyle {
+	const classTokens = className.split(/\s+/);
+	const primaryClass = EDGE_VISUAL_PRIORITY.find((classToken) => classTokens.includes(classToken));
+	const primaryStyle = primaryClass ? EDGE_VISUAL_STYLES[primaryClass] : undefined;
 
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryComplete)) {
-		return EDGE_MARKER_COLORS.done;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.doneToUndone)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.undoneToDone)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questActivePath)) {
-		return EDGE_MARKER_COLORS.progress;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questGoalPath)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questDoneToDone)) {
-		return EDGE_MARKER_COLORS.quest;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questDoneToUndone)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questMediumDoneToDone)) {
-		return EDGE_MARKER_COLORS.done;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questMediumDoneToUndone)) {
-		return EDGE_MARKER_COLORS.progress;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questMediumUndoneToDone)) {
-		return EDGE_MARKER_COLORS.done;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questMediumPath)) {
-		return EDGE_MARKER_COLORS.progress;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questLockedPath)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questPath)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryChain)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryPath)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.complete)) {
-		return EDGE_MARKER_COLORS.done;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.inProgress)) {
-		return EDGE_MARKER_COLORS.muted;
-	}
-
-	return EDGE_MARKER_COLORS.default;
-}
-
-function isStraightQuestLine(className: string): boolean {
-	return hasEdgeClass(className, EDGE_CLASSES.questPath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questGoalPath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questActivePath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questDoneToDone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questDoneToUndone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questLockedPath);
-}
-
-function getEdgeZIndex(className: string): number {
-	if (hasEdgeClass(className, EDGE_CLASSES.priorityPath)) {
-		return 7000;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryComplete)) {
-		return 6000;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryPath)) {
-		return 5000;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.necessaryChain)) {
-		return 4000;
-	}
-
-	if (hasEdgeClass(className, EDGE_CLASSES.questLockedPath)) {
-		return 20;
-	}
-
-	if (
-		hasEdgeClass(className, EDGE_CLASSES.questActivePath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questDoneToDone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questDoneToUndone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questGoalPath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questMediumDoneToDone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questMediumDoneToUndone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questMediumUndoneToDone)
-		|| hasEdgeClass(className, EDGE_CLASSES.questMediumPath)
-		|| hasEdgeClass(className, EDGE_CLASSES.questPath)
-	) {
-		return 20;
-	}
-
-	if (
-		hasEdgeClass(className, EDGE_CLASSES.complete)
-		|| hasEdgeClass(className, EDGE_CLASSES.inProgress)
-		|| hasEdgeClass(className, EDGE_CLASSES.doneToUndone)
-		|| hasEdgeClass(className, EDGE_CLASSES.undoneToDone)
-	) {
-		return 10;
-	}
-
-	return 0;
-}
-
-function hasEdgeClass(className: string, classToken: string): boolean {
-	return className.split(/\s+/).includes(classToken);
+	return {
+		markerColor: primaryStyle?.markerColor ?? EDGE_MARKER_COLORS.default,
+		zIndex: primaryStyle?.zIndex ?? 0,
+		isStraight: classTokens.some((classToken) => EDGE_VISUAL_STYLES[classToken]?.isStraight === true)
+	};
 }
 
 function isAllowedConnectionForNodes(nodes: TechTreeNode[], connection: ConnectionLike): boolean {

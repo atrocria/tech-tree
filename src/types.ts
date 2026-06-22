@@ -34,5 +34,13 @@ export type TechTreeBoard = {
 	name: string;
 	nodes: TechTreeNode[];
 	edges: Edge[];
+	stickyNote: TechTreeStickyNote;
 	updatedAt: number;
+};
+
+export type TechTreeStickyNote = {
+	text: string;
+	x: number;
+	y: number;
+	isOpen: boolean;
 };
