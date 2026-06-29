@@ -132,7 +132,10 @@ export class TechTreeItemView extends TextFileView {
 				this.file && isCanvasPath(this.file.path)
 					? React.createElement(TechTreeApp, {
 						boardPath: this.file.path,
-						manager: this.manager
+						manager: this.manager,
+						onOpenBoard: (path: string) => {
+							void this.plugin.openBoard(path, this.leaf);
+						}
 					})
 					: React.createElement(TechTreeBoardPicker, {
 						boards: this.manager.getKnownBoardFiles().map((file) => ({

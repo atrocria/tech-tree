@@ -18,12 +18,14 @@ export type TechTreeNodeData = Record<string, unknown> & {
 	hasQuestPrerequisite: boolean;
 	progressState: TechTreeProgressState;
 	questViewMode: boolean;
+	boardPath: string | null;
 	isQuestView?: boolean;
 	isPlacementPreview?: boolean;
 	onTextChange?: (nodeId: string, text: string) => void;
 	onCompletedChange?: (nodeId: string, completed: boolean) => void;
 	onPriorityChange?: (nodeId: string, priority: TechTreePriority) => void;
 	onPriorityOrderChange?: (nodeId: string, priorityOrder: number) => void;
+	onOpenBoard?: (path: string) => void;
 	hasOtherGoalNode?: boolean;
 };
 

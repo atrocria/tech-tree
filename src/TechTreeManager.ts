@@ -4,18 +4,23 @@ import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressSta
 
 type CanvasSide = "top" | "right" | "bottom" | "left";
 
-type CanvasTextNode = {
+type CanvasTextNode = Record<string, unknown> & {
 	id: string;
 	type: "text";
 	x: number;
 	y: number;
-	width: number;
-	height: number;
+	width?: number;
+	height?: number;
 	text: string;
 	color?: string;
 };
 
-type CanvasEdge = {
+type CanvasNode = CanvasTextNode | (Record<string, unknown> & {
+	id: string;
+	type: string;
+});
+
+type CanvasEdge = Record<string, unknown> & {
 	id: string;
 	fromNode: string;
 	fromSide?: CanvasSide;
@@ -25,9 +30,14 @@ type CanvasEdge = {
 	color?: string;
 };
 
-type CanvasFile = {
-	nodes: CanvasTextNode[];
+type CanvasFile = Record<string, unknown> & {
+	nodes: CanvasNode[];
 	edges: CanvasEdge[];
+};
+
+type CanvasInspection = {
+	mtime: number;
+	isTechTree: boolean;
 };
 
 type TechTreeConnectionMetadata = {
@@ -47,13 +57,14 @@ const BOARD_EXTENSION = ".canvas";
 const LEGACY_BOARD_SUFFIX = "(metadata).canvas";
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 130;
-const LEGACY_DEFAULT_NODE_HEIGHT = 170;
 const STICKY_NOTE_CANVAS_NODE_ID = "tech-tree-sticky-note";
 const STICKY_NOTE_CANVAS_NODE_MARKER = "tech-tree sticky note";
 const STICKY_NOTE_CANVAS_NODE_WIDTH = 320;
 const STICKY_NOTE_CANVAS_NODE_HEIGHT = 180;
 const STICKY_NOTE_CANVAS_NODE_GAP = 160;
 const SAVE_DELAY_MS = 250;
+const BOARD_FILE_INSPECTION_CONCURRENCY = 8;
+const BOARD_PATH_METADATA_KEY = "board";
 const CONNECTIONS_METADATA_KEY = "connections";
 const QUEST_VIEW_METADATA_KEY = "quest view";
 const PRIORITY_ORDER_METADATA_KEY = "priority order";
@@ -65,11 +76,12 @@ const DEFAULT_STICKY_NOTE: TechTreeStickyNote = {
 	y: 96,
 	isOpen: false
 };
-const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", CONNECTIONS_METADATA_KEY, QUEST_VIEW_METADATA_KEY]);
-const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status", QUEST_VIEW_METADATA_KEY];
+const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY, QUEST_VIEW_METADATA_KEY]);
+const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status", QUEST_VIEW_METADATA_KEY];
 const METADATA_LINE_PATTERN = /^([a-z][\w -]*):\s*(.*)$/i;
 
 type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "priorityOrder" | "status" | "completed" | "questViewMode"> & {
+	boardPath: string | null;
 	connections: TechTreeConnectionMetadata[];
 	partial: boolean;
 	statusKind: TechTreeStatusKind;
@@ -88,9 +100,12 @@ export type CreateTechTreeNodeOptions = {
 export class TechTreeManager {
 	private static instance: TechTreeManager | null = null;
 	private boards = new Map<string, TechTreeBoard>();
+	private sourceCanvases = new Map<string, CanvasFile>();
 	private knownTechTreePaths = new Set<string>();
+	private canvasInspectionCache = new Map<string, CanvasInspection>();
 	private listeners = new Map<string, Set<BoardListener>>();
 	private saveTimers = new Map<string, number>();
+	private pendingSaves = new Map<string, TechTreeBoard>();
 	private savingPaths = new Set<string>();
 
 	private constructor(
@@ -109,15 +124,28 @@ export class TechTreeManager {
 		return TechTreeManager.instance;
 	}
 
-	dispose(): void {
+	async dispose(): Promise<void> {
 		for (const timer of this.saveTimers.values()) {
 			window.clearTimeout(timer);
 		}
 
 		this.saveTimers.clear();
+		const pendingSaves = [...this.pendingSaves.entries()];
+		this.pendingSaves.clear();
+
+		await Promise.all(pendingSaves.map(async ([path, board]) => {
+			try {
+				await this.saveBoard(path, board);
+			} catch (error) {
+				console.error("Failed to save pending tech tree canvas", error);
+			}
+		}));
+
 		this.listeners.clear();
 		this.boards.clear();
+		this.sourceCanvases.clear();
 		this.knownTechTreePaths.clear();
+		this.canvasInspectionCache.clear();
 		this.savingPaths.clear();
 
 		if (TechTreeManager.instance === this) {
@@ -147,16 +175,19 @@ export class TechTreeManager {
 		}
 
 		const rawCanvas = await this.app.vault.read(file);
+		const canvas = parseCanvas(rawCanvas);
 
-		if (!rawCanvasHasTechTreeGoal(rawCanvas)) {
+		if (!canvasHasTechTreeGoal(canvas)) {
 			throw new Error("This canvas is not a tech tree. Add a text node with priority: goal to open it as a tech tree.");
 		}
 
 		const previousBoard = this.boards.get(path);
 		const previousGoalId = previousBoard?.nodes.find((node) => node.data.priority === "goal")?.id;
-		const board = applyNodeState(enforceSingleGoalNode(protectGoalNode(normalizeBoard(path, parseCanvas(rawCanvas)), previousBoard), previousGoalId));
+		const board = applyNodeState(enforceSingleGoalNode(protectGoalNode(normalizeBoard(path, canvas), previousBoard), previousGoalId));
 		this.boards.set(path, board);
+		this.sourceCanvases.set(path, canvas);
 		this.knownTechTreePaths.add(path);
+		this.cacheCanvasInspection(file, true);
 
 		return cloneBoard(board);
 	}
@@ -196,21 +227,81 @@ export class TechTreeManager {
 		const targetFolder = folder ?? this.app.fileManager.getNewFileParent(this.app.workspace.getActiveFile()?.path ?? "");
 		const path = await this.getAvailableBoardPath(targetFolder, name);
 		const board = createDefaultBoard(path);
-		const file = await this.app.vault.create(path, stringifyCanvas(boardToCanvas(board)));
+		const canvas = boardToCanvas(board);
+		const file = await this.app.vault.create(path, stringifyCanvas(canvas));
 
 		this.boards.set(file.path, board);
+		this.sourceCanvases.set(file.path, canvas);
 		this.knownTechTreePaths.add(file.path);
+		this.cacheCanvasInspection(file, true);
 		this.notify(file.path, board);
 
 		return file;
 	}
 
+	async createBoardFromNode(sourceBoardPath: string, nodeText: string): Promise<TFile> {
+		const sourceFile = this.getCanvasFile(sourceBoardPath);
+		const targetFolder = sourceFile?.parent ?? this.app.fileManager.getNewFileParent(sourceBoardPath);
+		const path = await this.getAvailableBoardPath(targetFolder, getBoardNameFromText(nodeText));
+		const board = createBoardWithGoal(path, nodeText);
+		const canvas = boardToCanvas(board);
+		const file = await this.app.vault.create(path, stringifyCanvas(canvas));
+
+		this.boards.set(file.path, board);
+		this.sourceCanvases.set(file.path, canvas);
+		this.knownTechTreePaths.add(file.path);
+		this.cacheCanvasInspection(file, true);
+		this.notify(file.path, board);
+
+		return file;
+	}
+
+	async syncLinkedBoardWithNode(linkedBoardPath: string, nodeText: string): Promise<string> {
+		const file = this.getCanvasFile(linkedBoardPath);
+
+		if (!file) {
+			throw new Error(`Linked tech tree canvas not found: ${linkedBoardPath}`);
+		}
+
+		const renamedFile = await this.renameBoardFileToMatchText(file, nodeText);
+		const loadedCanvas = this.boards.has(renamedFile.path)
+			? null
+			: parseCanvas(await this.app.vault.read(renamedFile));
+		const board = this.boards.get(renamedFile.path)
+			?? normalizeBoard(renamedFile.path, loadedCanvas ?? createEmptyCanvas());
+
+		if (loadedCanvas) {
+			this.sourceCanvases.set(renamedFile.path, loadedCanvas);
+			this.cacheCanvasInspection(renamedFile, canvasHasTechTreeGoal(loadedCanvas));
+		}
+		const goalNode = board.nodes.find((node) => node.data.priority === "goal");
+
+		if (!goalNode) {
+			throw new Error(`Linked tech tree canvas has no goal node: ${renamedFile.path}`);
+		}
+
+		await this.updateBoard(renamedFile.path, {
+			...board,
+			path: renamedFile.path,
+			name: getBoardName(renamedFile.path),
+			nodes: board.nodes.map((node) => node.id === goalNode.id
+				? {
+					...node,
+					data: {
+						...node.data,
+						text: updateNodeVisibleText(node.data.text, nodeText)
+					}
+				}
+				: node)
+		});
+
+		this.knownTechTreePaths.add(renamedFile.path);
+		return renamedFile.path;
+	}
+
 	async getBoardFiles(): Promise<TFile[]> {
 		const files = this.getCanvasFiles();
-		const checks = await Promise.all(files.map(async (file) => ({
-			file,
-			isTechTree: await this.isTechTreeCanvasFile(file)
-		})));
+		const checks = await getCanvasFileChecks(files, (file) => this.isTechTreeCanvasFile(file));
 
 		return checks
 			.filter(({ isTechTree }) => isTechTree)
@@ -227,7 +318,7 @@ export class TechTreeManager {
 	getBoardFileData(path: string): string | null {
 		const board = this.boards.get(path);
 
-		return board ? stringifyCanvas(boardToCanvas(board)) : null;
+		return board ? stringifyCanvas(boardToCanvas(board, this.sourceCanvases.get(path))) : null;
 	}
 
 	async loadStickyNote(path: string): Promise<TechTreeStickyNote> {
@@ -265,14 +356,20 @@ export class TechTreeManager {
 		}
 
 		try {
-			const rawCanvas = await this.app.vault.read(file);
-			const isTechTree = rawCanvasHasTechTreeGoal(rawCanvas);
+			const cachedInspection = this.canvasInspectionCache.get(file.path);
 
-			if (isTechTree) {
-				this.knownTechTreePaths.add(file.path);
-			} else {
-				this.knownTechTreePaths.delete(file.path);
+			if (cachedInspection?.mtime === file.stat.mtime) {
+				this.updateKnownTechTreePath(file.path, cachedInspection.isTechTree);
+				return cachedInspection.isTechTree;
 			}
+
+			const rawCanvas = await this.app.vault.read(file);
+			const canvas = parseCanvas(rawCanvas);
+			const isTechTree = canvasHasTechTreeGoal(canvas);
+
+			this.sourceCanvases.set(file.path, canvas);
+			this.cacheCanvasInspection(file, isTechTree);
+			this.updateKnownTechTreePath(file.path, isTechTree);
 
 			return isTechTree;
 		} catch (error) {
@@ -306,11 +403,23 @@ export class TechTreeManager {
 		}
 
 		const board = this.boards.get(oldPath);
+		const sourceCanvas = this.sourceCanvases.get(oldPath);
+		const cachedInspection = this.canvasInspectionCache.get(oldPath);
 		const listeners = this.listeners.get(oldPath);
+		const pendingSave = this.pendingSaves.get(oldPath);
+		const saveTimer = this.saveTimers.get(oldPath);
 
 		this.boards.delete(oldPath);
+		this.sourceCanvases.delete(oldPath);
 		this.knownTechTreePaths.delete(oldPath);
+		this.canvasInspectionCache.delete(oldPath);
 		this.listeners.delete(oldPath);
+		this.pendingSaves.delete(oldPath);
+		this.saveTimers.delete(oldPath);
+
+		if (saveTimer) {
+			window.clearTimeout(saveTimer);
+		}
 
 		if (board && isCanvasPath(file.path)) {
 			this.boards.set(file.path, {
@@ -321,8 +430,27 @@ export class TechTreeManager {
 			this.knownTechTreePaths.add(file.path);
 		}
 
+		if (sourceCanvas && isCanvasPath(file.path)) {
+			this.sourceCanvases.set(file.path, sourceCanvas);
+		}
+
+		if (cachedInspection && isCanvasPath(file.path)) {
+			this.canvasInspectionCache.set(file.path, {
+				...cachedInspection,
+				mtime: file.stat.mtime
+			});
+		}
+
 		if (listeners && isCanvasPath(file.path)) {
 			this.listeners.set(file.path, listeners);
+		}
+
+		if (pendingSave && isCanvasPath(file.path)) {
+			this.queueSave(file.path, {
+				...pendingSave,
+				path: file.path,
+				name: getBoardName(file.path)
+			});
 		}
 	}
 
@@ -336,6 +464,21 @@ export class TechTreeManager {
 			.filter((file) => isCanvasPath(file.path));
 	}
 
+	private cacheCanvasInspection(file: TFile, isTechTree: boolean): void {
+		this.canvasInspectionCache.set(file.path, {
+			mtime: file.stat.mtime,
+			isTechTree
+		});
+	}
+
+	private updateKnownTechTreePath(path: string, isTechTree: boolean): void {
+		if (isTechTree) {
+			this.knownTechTreePaths.add(path);
+		} else {
+			this.knownTechTreePaths.delete(path);
+		}
+	}
+
 	private queueSave(path: string, board: TechTreeBoard): void {
 		const existingTimer = this.saveTimers.get(path);
 
@@ -343,9 +486,18 @@ export class TechTreeManager {
 			window.clearTimeout(existingTimer);
 		}
 
+		this.pendingSaves.set(path, board);
+
 		const timer = window.setTimeout(() => {
 			this.saveTimers.delete(path);
-			this.saveBoard(path, board).catch((error) => console.error("Failed to save tech tree canvas", error));
+			const pendingBoard = this.pendingSaves.get(path);
+			this.pendingSaves.delete(path);
+
+			if (!pendingBoard) {
+				return;
+			}
+
+			this.saveBoard(path, pendingBoard).catch((error) => console.error("Failed to save tech tree canvas", error));
 		}, SAVE_DELAY_MS);
 
 		this.saveTimers.set(path, timer);
@@ -359,9 +511,17 @@ export class TechTreeManager {
 			return;
 		}
 
+		const canvas = boardToCanvas(board, this.sourceCanvases.get(path));
+
 		this.savingPaths.add(path);
-		await this.app.vault.modify(file, stringifyCanvas(boardToCanvas(board)));
-		window.setTimeout(() => this.savingPaths.delete(path), 500);
+
+		try {
+			await this.app.vault.modify(file, stringifyCanvas(canvas));
+			this.sourceCanvases.set(path, canvas);
+			this.cacheCanvasInspection(file, true);
+		} finally {
+			window.setTimeout(() => this.savingPaths.delete(path), 500);
+		}
 	}
 
 	private async loadLegacyStickyNote(path: string): Promise<TechTreeStickyNote> {
@@ -406,13 +566,33 @@ export class TechTreeManager {
 		}
 	}
 
-	private async getAvailableBoardPath(folder: TFolder, rawName: string): Promise<string> {
+	private async renameBoardFileToMatchText(file: TFile, nodeText: string): Promise<TFile> {
+		const targetFolder = file.parent ?? this.app.fileManager.getNewFileParent(file.path);
+		const nextPath = await this.getAvailableBoardPath(targetFolder, getBoardNameFromText(nodeText), file.path);
+
+		if (nextPath === file.path) {
+			return file;
+		}
+
+		const oldPath = file.path;
+		await this.app.fileManager.renameFile(file, nextPath);
+		const renamedFile = this.getCanvasFile(nextPath);
+
+		if (!renamedFile) {
+			throw new Error(`Unable to find renamed tech tree canvas: ${nextPath}`);
+		}
+
+		this.handleCanvasRenamed(renamedFile, oldPath);
+		return renamedFile;
+	}
+
+	private async getAvailableBoardPath(folder: TFolder, rawName: string, existingPath?: string): Promise<string> {
 		const folderPath = folder.path === "/" ? "" : `${folder.path}/`;
 		const baseName = sanitizeBoardName(rawName) || DEFAULT_BOARD_NAME;
 		let candidate = `${folderPath}${baseName}${BOARD_EXTENSION}`;
 		let index = 1;
 
-		while (await this.app.vault.adapter.exists(candidate)) {
+		while (candidate !== existingPath && await this.app.vault.adapter.exists(candidate)) {
 			candidate = `${folderPath}${baseName} ${index}${BOARD_EXTENSION}`;
 			index += 1;
 		}
@@ -437,6 +617,33 @@ export function getBoardName(path: string): string {
 	}
 
 	return fileName.replace(/\.canvas$/i, "") || DEFAULT_BOARD_NAME;
+}
+
+async function getCanvasFileChecks(
+	files: TFile[],
+	isTechTreeCanvasFile: (file: TFile) => Promise<boolean>
+): Promise<{ file: TFile; isTechTree: boolean }[]> {
+	const checks: { file: TFile; isTechTree: boolean }[] = [];
+	let nextIndex = 0;
+	const workerCount = Math.min(BOARD_FILE_INSPECTION_CONCURRENCY, files.length);
+
+	await Promise.all(Array.from({ length: workerCount }, async () => {
+		while (nextIndex < files.length) {
+			const file = files[nextIndex];
+			nextIndex += 1;
+
+			if (!file) {
+				continue;
+			}
+
+			checks.push({
+				file,
+				isTechTree: await isTechTreeCanvasFile(file)
+			});
+		}
+	}));
+
+	return checks;
 }
 
 function normalizePluginData(data: unknown): TechTreePluginData {
@@ -522,6 +729,12 @@ export function updateNodePriorityOrder(existingText: string, priorityOrder: num
 		: removeHiddenMetadata(existingText, PRIORITY_ORDER_METADATA_KEY);
 }
 
+export function updateNodeBoardPath(existingText: string, boardPath: string | null): string {
+	return boardPath
+		? upsertHiddenMetadata(existingText, BOARD_PATH_METADATA_KEY, boardPath)
+		: removeHiddenMetadata(existingText, BOARD_PATH_METADATA_KEY);
+}
+
 export function updateGoalQuestViewMode(existingText: string, enabled: boolean): string {
 	return upsertHiddenMetadata(existingText, QUEST_VIEW_METADATA_KEY, enabled ? "on" : "off");
 }
@@ -558,6 +771,26 @@ function createDefaultBoard(path: string): TechTreeBoard {
 	});
 }
 
+function createBoardWithGoal(path: string, goalText: string): TechTreeBoard {
+	const goalNode = createNode(
+		{ x: -160, y: -65 },
+		{
+			priority: "goal",
+			text: goalText
+		}
+	);
+	const board: TechTreeBoard = {
+		path,
+		name: getBoardName(path),
+		updatedAt: Date.now(),
+		stickyNote: { ...DEFAULT_STICKY_NOTE },
+		nodes: [goalNode],
+		edges: []
+	};
+
+	return applyNodeState(board);
+}
+
 function createConfiguredNodeText(options: CreateTechTreeNodeOptions): string {
 	const priority = options.priority ?? "necessary";
 	const visibleText = normalizeLineEndings(options.text ?? "").trimEnd();
@@ -571,29 +804,31 @@ function createConfiguredNodeText(options: CreateTechTreeNodeOptions): string {
 
 function parseCanvas(rawCanvas: string): CanvasFile {
 	try {
-		const parsed = JSON.parse(rawCanvas) as Partial<CanvasFile>;
+		const parsed: unknown = JSON.parse(rawCanvas);
+
+		if (!isRecord(parsed)) {
+			return createEmptyCanvas();
+		}
 
 		return {
-			nodes: Array.isArray(parsed.nodes) ? parsed.nodes.filter(isCanvasTextNode) : [],
+			...parsed,
+			nodes: Array.isArray(parsed.nodes) ? parsed.nodes.filter(isCanvasNode) : [],
 			edges: Array.isArray(parsed.edges) ? parsed.edges.filter(isCanvasEdge) : []
 		};
 	} catch (error) {
 		console.error("Failed to parse tech tree canvas", error);
-		return {
-			nodes: [],
-			edges: []
-		};
+		return createEmptyCanvas();
 	}
 }
 
-function rawCanvasHasTechTreeGoal(rawCanvas: string): boolean {
-	const canvas = parseCanvas(rawCanvas);
-	return canvas.nodes.some((node) => !isStickyNoteCanvasNode(node) && parseNodeText(node.text).priority === "goal");
+function canvasHasTechTreeGoal(canvas: CanvasFile): boolean {
+	return canvas.nodes.some((node) => isCanvasTextNode(node) && !isStickyNoteCanvasNode(node) && parseNodeText(node.text).priority === "goal");
 }
 
 function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 	const stickyNote = getStickyNoteFromCanvas(canvas.nodes);
 	const nodes = canvas.nodes
+		.filter(isCanvasTextNode)
 		.filter((node) => !isStickyNoteCanvasNode(node))
 		.map(toFlowNode);
 	const nodeIds = new Set(nodes.map((node) => node.id));
@@ -601,7 +836,7 @@ function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 		.map(toFlowEdge)
 		.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)));
 	const metadataEdges = getMetadataEdges(nodes);
-	const edges = metadataEdges.length > 0 ? metadataEdges : canvasEdges;
+	const edges = canvasEdges.length > 0 ? canvasEdges : metadataEdges;
 	const nodesWithImpliedPriorities = applyEdgeImpliedPriorities(nodes, edges);
 	const normalizedEdges = normalizeEdgesForBoard(nodesWithImpliedPriorities, edges);
 
@@ -615,13 +850,82 @@ function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 	});
 }
 
-function boardToCanvas(board: TechTreeBoard): CanvasFile {
+function boardToCanvas(board: TechTreeBoard, sourceCanvas = createEmptyCanvas()): CanvasFile {
+	const boardNodesById = new Map(board.nodes.map((node) => [node.id, toCanvasNode(node)]));
+	const boardNodeIds = new Set(boardNodesById.keys());
+	const stickyNoteNode = toStickyNoteCanvasNode(board.stickyNote, board.nodes);
+	const nodes: CanvasNode[] = [];
+	const writtenNodeIds = new Set<string>();
+	let stickyNoteWritten = false;
+
+	for (const sourceNode of sourceCanvas.nodes) {
+		if (isCanvasTextNode(sourceNode) && isStickyNoteCanvasNode(sourceNode)) {
+			if (!stickyNoteWritten) {
+				nodes.push(mergeCanvasTextNode(sourceNode, stickyNoteNode));
+				stickyNoteWritten = true;
+			}
+
+			continue;
+		}
+
+		const boardNode = boardNodesById.get(sourceNode.id);
+
+		if (boardNode) {
+			nodes.push(mergeCanvasTextNode(sourceNode, boardNode));
+			writtenNodeIds.add(sourceNode.id);
+			continue;
+		}
+
+		if (isCanvasTextNode(sourceNode)) {
+			continue;
+		}
+
+		nodes.push(cloneCanvasNode(sourceNode));
+	}
+
+	for (const [nodeId, node] of boardNodesById) {
+		if (!writtenNodeIds.has(nodeId)) {
+			nodes.push(node);
+		}
+	}
+
+	if (!stickyNoteWritten) {
+		nodes.unshift(stickyNoteNode);
+	}
+
+	const finalNodeIds = new Set(nodes.map((node) => node.id));
+	const boardEdgesById = new Map(board.edges.map((edge) => [edge.id, toCanvasEdge(edge)]));
+	const edges: CanvasEdge[] = [];
+	const writtenEdgeIds = new Set<string>();
+
+	for (const sourceEdge of sourceCanvas.edges) {
+		const boardEdge = boardEdgesById.get(sourceEdge.id);
+
+		if (boardEdge) {
+			edges.push(mergeCanvasEdge(sourceEdge, boardEdge));
+			writtenEdgeIds.add(sourceEdge.id);
+			continue;
+		}
+
+		if (boardNodeIds.has(sourceEdge.fromNode) && boardNodeIds.has(sourceEdge.toNode)) {
+			continue;
+		}
+
+		if (finalNodeIds.has(sourceEdge.fromNode) && finalNodeIds.has(sourceEdge.toNode)) {
+			edges.push(cloneCanvasEdge(sourceEdge));
+		}
+	}
+
+	for (const [edgeId, edge] of boardEdgesById) {
+		if (!writtenEdgeIds.has(edgeId)) {
+			edges.push(edge);
+		}
+	}
+
 	return {
-		nodes: [
-			toStickyNoteCanvasNode(board.stickyNote, board.nodes),
-			...board.nodes.map(toCanvasNode)
-		],
-		edges: board.edges.map(toCanvasEdge)
+		...sourceCanvas,
+		nodes,
+		edges
 	};
 }
 
@@ -653,6 +957,7 @@ function toFlowNode(node: CanvasTextNode): TechTreeNode {
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
 			questViewMode: parsed.questViewMode,
+			boardPath: parsed.boardPath,
 			locked: false,
 			hasCheckedNeighbor: false,
 			hasQuestPrerequisite: false,
@@ -707,14 +1012,15 @@ function getStickyNoteCanvasNodePosition(nodes: TechTreeNode[]): XYPosition {
 	};
 }
 
-function getStickyNoteFromCanvas(nodes: CanvasTextNode[]): TechTreeStickyNote {
-	const stickyNode = nodes.find(isStickyNoteCanvasNode);
+function getStickyNoteFromCanvas(nodes: CanvasNode[]): TechTreeStickyNote {
+	const stickyNode = nodes.find((node): node is CanvasTextNode => isCanvasTextNode(node) && isStickyNoteCanvasNode(node));
 
 	return stickyNode ? parseStickyNoteCanvasNode(stickyNode) : { ...DEFAULT_STICKY_NOTE };
 }
 
-function isStickyNoteCanvasNode(node: CanvasTextNode): boolean {
-	return node.id === STICKY_NOTE_CANVAS_NODE_ID || normalizeLineEndings(node.text).startsWith(`%% ${STICKY_NOTE_CANVAS_NODE_MARKER}`);
+function isStickyNoteCanvasNode(node: CanvasNode): boolean {
+	return isCanvasTextNode(node)
+		&& (node.id === STICKY_NOTE_CANVAS_NODE_ID || normalizeLineEndings(node.text).startsWith(`%% ${STICKY_NOTE_CANVAS_NODE_MARKER}`));
 }
 
 function parseStickyNoteCanvasNode(node: CanvasTextNode): TechTreeStickyNote {
@@ -764,7 +1070,7 @@ function formatStickyNoteCanvasText(note: TechTreeStickyNote): string {
 }
 
 function normalizeNodeHeight(height: number): number {
-	return height <= LEGACY_DEFAULT_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : Math.max(height, DEFAULT_NODE_HEIGHT);
+	return Math.max(height, DEFAULT_NODE_HEIGHT);
 }
 
 function toFlowEdge(edge: CanvasEdge): Edge {
@@ -1123,6 +1429,7 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 					statusKind: getRuntimeStatusKind(runtimeStatus),
 					completed: parsed.completed,
 					questViewMode: parsed.questViewMode,
+					boardPath: parsed.boardPath,
 					locked,
 					hasCheckedNeighbor,
 					hasQuestPrerequisite,
@@ -1217,6 +1524,7 @@ function parseNodeText(text: string): ParsedNodeText {
 		statusKind: completed ? "done" : statusKind,
 		completed,
 		questViewMode,
+		boardPath: normalizeBoardPath(metadata.get(BOARD_PATH_METADATA_KEY)),
 		partial
 	};
 }
@@ -1283,6 +1591,16 @@ function getDefaultNodeText(title: string, priority: TechTreePriority = "necessa
 	return formatNodeText(metadata, visibleLines);
 }
 
+function getBoardNameFromText(text: string): string {
+	const firstLine = normalizeLineEndings(text)
+		.split("\n")
+		.find((line) => line.trim())
+		?.replace(/^#+\s*/, "")
+		.trim();
+
+	return firstLine || DEFAULT_BOARD_NAME;
+}
+
 function stripNodeRuntimeData(node: TechTreeNode): TechTreeNode {
 	const parsed = parseNodeText(node.data.text);
 	const progressState: TechTreeProgressState = node.data.progressState
@@ -1300,6 +1618,7 @@ function stripNodeRuntimeData(node: TechTreeNode): TechTreeNode {
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
 			questViewMode: parsed.questViewMode,
+			boardPath: parsed.boardPath,
 			locked: node.data.locked,
 			hasCheckedNeighbor: node.data.hasCheckedNeighbor,
 			hasQuestPrerequisite: node.data.hasQuestPrerequisite,
@@ -1374,13 +1693,30 @@ function setNodePriority(node: TechTreeNode, priority: TechTreePriority): TechTr
 			statusKind: parsed.statusKind,
 			completed: parsed.completed,
 			questViewMode: parsed.questViewMode,
+			boardPath: parsed.boardPath,
 			progressState: getProgressState(parsed, node.data.hasCheckedNeighbor, node.data.locked)
 		}
 	};
 }
 
-function isCanvasTextNode(node: unknown): node is CanvasTextNode {
+function createEmptyCanvas(): CanvasFile {
+	return {
+		nodes: [],
+		edges: []
+	};
+}
+
+function isCanvasNode(node: unknown): node is CanvasNode {
 	if (!node || typeof node !== "object") {
+		return false;
+	}
+
+	const candidate = node as Partial<CanvasNode>;
+	return typeof candidate.id === "string" && typeof candidate.type === "string";
+}
+
+function isCanvasTextNode(node: unknown): node is CanvasTextNode {
+	if (!isCanvasNode(node)) {
 		return false;
 	}
 
@@ -1398,11 +1734,33 @@ function isCanvasEdge(edge: unknown): edge is CanvasEdge {
 	}
 
 	const candidate = edge as Partial<CanvasEdge>;
-	return typeof candidate.fromNode === "string" && typeof candidate.toNode === "string";
+	return typeof candidate.id === "string" && typeof candidate.fromNode === "string" && typeof candidate.toNode === "string";
 }
 
 function stringifyCanvas(canvas: CanvasFile): string {
 	return `${JSON.stringify(canvas, null, 2)}\n`;
+}
+
+function cloneCanvasNode(node: CanvasNode): CanvasNode {
+	return { ...node };
+}
+
+function cloneCanvasEdge(edge: CanvasEdge): CanvasEdge {
+	return { ...edge };
+}
+
+function mergeCanvasTextNode(sourceNode: CanvasNode | undefined, node: CanvasTextNode): CanvasTextNode {
+	return {
+		...(sourceNode ?? {}),
+		...node
+	};
+}
+
+function mergeCanvasEdge(sourceEdge: CanvasEdge | undefined, edge: CanvasEdge): CanvasEdge {
+	return {
+		...(sourceEdge ?? {}),
+		...edge
+	};
 }
 
 function getVisibleNodeText(text: string): string {
@@ -1542,6 +1900,12 @@ function normalizeBooleanMetadata(value: string | undefined): boolean {
 	const normalized = value?.toLowerCase().trim();
 
 	return normalized === "true" || normalized === "on" || normalized === "yes" || normalized === "quest";
+}
+
+function normalizeBoardPath(value: string | undefined): string | null {
+	const normalized = value?.trim();
+
+	return normalized && isCanvasPath(normalized) ? normalized : null;
 }
 
 function getCanvasSide(handleId: string | null | undefined, fallback: CanvasSide): CanvasSide {

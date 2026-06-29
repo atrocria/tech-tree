@@ -103,7 +103,7 @@ export default class TechTreePlugin extends Plugin {
 
 	onunload() {
 		this.boardModes.clear();
-		this.manager.dispose();
+		void this.manager.dispose();
 	}
 
 	async createBoardAndOpen(folder?: TFolder, leaf?: WorkspaceLeaf | null, name = DEFAULT_BOARD_NAME) {

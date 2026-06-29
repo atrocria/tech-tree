@@ -51,40 +51,61 @@
 	justify-content: center;
 	width: 100%;
 	height: 100%;
-	padding: 24px;
+	padding: 28px;
 	background: var(--background-primary);
 	color: var(--text-muted);
 }
 
 .tech-tree-picker__panel {
-	width: min(560px, 100%);
-	max-height: min(620px, calc(100vh - 120px));
-	padding: 18px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 10px;
-	background: var(--background-secondary);
-	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+	display: flex;
+	flex-direction: column;
+	width: min(840px, 100%);
+	max-height: min(630px, calc(100vh - 96px));
+	padding: 0 14px 16px;
+	border: 1px solid rgba(255, 255, 255, 0.16);
+	border-radius: 14px;
+	background: #1b1b1b;
+	box-shadow: 0 24px 72px rgba(0, 0, 0, 0.42);
 	overflow: hidden;
 }
 
 .tech-tree-picker__panel h2 {
-	margin: 0 0 12px;
+	margin: 0;
 	color: var(--text-normal);
-	font-size: 20px;
-	font-weight: 650;
+	font-size: 0;
+	line-height: 0;
 }
 
 .tech-tree-picker__search {
 	width: 100%;
-	margin-bottom: 10px;
+	height: 52px;
+	margin: 0;
+	padding: 0 14px;
+	border: 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 0;
+	background: transparent;
+	color: var(--text-normal);
+	font-size: 16px;
+	box-shadow: none;
+	outline: none;
+}
+
+.tech-tree-picker__search:focus {
+	box-shadow: none;
+}
+
+.tech-tree-picker__search::placeholder {
+	color: var(--text-faint);
 }
 
 .tech-tree-picker__list {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	max-height: min(480px, calc(100vh - 220px));
-	padding-right: 4px;
+	gap: 2px;
+	min-height: 0;
+	max-height: min(530px, calc(100vh - 172px));
+	padding: 12px 2px 0;
 	overflow-y: auto;
 }
 
@@ -93,42 +114,69 @@
 	flex-direction: column;
 	align-items: flex-start;
 	width: 100%;
-	padding: 10px 12px;
-	border: 1px solid rgba(255, 255, 255, 0.08);
-	border-radius: 8px;
-	background: var(--background-primary);
+	min-height: 54px;
+	padding: 8px 14px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
 	color: var(--text-normal);
 	text-align: left;
-	transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+	cursor: pointer;
+	transition: background 120ms ease, color 120ms ease;
+}
+
+.tech-tree-picker__item span {
+	max-width: 100%;
+	overflow: hidden;
+	color: var(--text-normal);
+	font-size: 18px;
+	font-weight: 650;
+	line-height: 1.2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .tech-tree-picker__item--create {
-	margin-bottom: 8px;
-	border-color: rgba(249, 115, 22, 0.42);
+	margin: 10px 2px 0;
+	background: rgba(249, 115, 22, 0.1);
+	color: var(--tech-tree-progress);
 }
 
 .tech-tree-picker__item:hover,
 .tech-tree-picker__item:focus-visible {
-	border-color: var(--interactive-accent);
 	background: var(--background-modifier-hover);
-	transform: translateY(-1px);
+	outline: none;
 }
 
 .tech-tree-picker__item small {
-	margin-top: 2px;
+	max-width: 100%;
+	margin-top: 4px;
+	overflow: hidden;
 	color: var(--text-muted);
-	font-size: 12px;
+	font-size: 14px;
+	line-height: 1.2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .tech-tree-picker__empty {
 	display: flex;
-	gap: 10px;
+	gap: 14px;
 	align-items: center;
 	justify-content: space-between;
+	margin: 16px 2px 0;
+	padding: 12px 14px;
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.04);
 }
 
 .tech-tree-picker__empty p {
 	margin: 0;
+}
+
+.tech-tree-picker__empty button {
+	padding: 6px 12px;
+	border-radius: 6px;
 }
 
 .tech-tree-suggest__title {
@@ -695,11 +743,12 @@
 	content: "";
 	position: absolute;
 	bottom: 5px;
-	left: calc(50% - 6px);
-	width: 12px;
+	left: calc(50% - 3px);
+	width: 6px;
 	height: 3px;
 	border-radius: 999px;
 	background: var(--tech-tree-progress);
+	box-shadow: 0 0 5px rgba(249, 115, 22, 0.95), 0 0 10px rgba(249, 115, 22, 0.42);
 	pointer-events: none;
 }
 
@@ -846,7 +895,7 @@
 	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
 
-.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.tech-tree-node__priority-order) {
+.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.tech-tree-node__priority-order):not(.tech-tree-node__board-link) {
 	position: relative;
 	z-index: 2;
 }
@@ -887,6 +936,47 @@
 .tech-tree-node:hover {
 	--tech-tree-node-fill: var(--tech-tree-card-hover);
 	background: var(--tech-tree-node-fill);
+}
+
+.tech-tree-node__board-link {
+	position: absolute;
+	top: -25px;
+	left: 50%;
+	z-index: 8;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: max-content;
+	max-width: calc(100% - 32px);
+	height: auto;
+	min-width: 0;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	appearance: none;
+	background: transparent !important;
+	background-color: transparent !important;
+	background-image: none !important;
+	color: var(--tech-tree-quest);
+	font-size: 13px;
+	font-weight: 650;
+	line-height: 1.2;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	box-shadow: none !important;
+	cursor: pointer;
+	transform: translateX(-50%);
+}
+
+.tech-tree-node__board-link:hover,
+.tech-tree-node__board-link:focus-visible {
+	background: transparent !important;
+	background-color: transparent !important;
+	color: #93c5fd;
+	outline: none;
+	box-shadow: none !important;
 }
 
 .tech-tree-node.is-locked:hover {
