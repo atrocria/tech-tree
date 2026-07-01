@@ -71,9 +71,6 @@ export class TechTreeItemView extends TextFileView {
 		this.data = data;
 
 		if (clear) {
-			this.root?.unmount();
-			this.root = null;
-			this.contentEl.empty();
 			this.contentEl.addClass("tech-tree-view-container");
 		}
 
@@ -82,7 +79,6 @@ export class TechTreeItemView extends TextFileView {
 
 	clear(): void {
 		this.data = "";
-		this.render();
 	}
 
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
@@ -135,31 +131,34 @@ export class TechTreeItemView extends TextFileView {
 			this.root = createRoot(this.contentEl);
 		}
 
+		const boardPath = this.file && isCanvasPath(this.file.path) ? this.file.path : null;
+		const child = boardPath
+			? React.createElement(TechTreeApp, {
+				boardPath,
+				manager: this.manager,
+				colorSeries: this.plugin.getSettings().colorSeries,
+				onOpenBoard: (path: string) => {
+					void this.plugin.openBoard(path, this.leaf);
+				}
+			})
+			: React.createElement(TechTreeBoardPicker, {
+				boards: this.manager.getKnownBoardFiles().map((file) => ({
+					name: getBoardName(file.path),
+					path: file.path
+				})),
+				onCreateBoard: (name?: string) => {
+					void this.plugin.createBoardAndOpen(undefined, this.leaf, name);
+				},
+				onOpenBoard: (path: string) => {
+					void this.plugin.openBoard(path, this.leaf);
+				}
+			});
+
 		this.root.render(
 			React.createElement(
 				React.StrictMode,
 				null,
-				this.file && isCanvasPath(this.file.path)
-					? React.createElement(TechTreeApp, {
-						boardPath: this.file.path,
-						manager: this.manager,
-						colorSeries: this.plugin.getSettings().colorSeries,
-						onOpenBoard: (path: string) => {
-							void this.plugin.openBoard(path, this.leaf);
-						}
-					})
-					: React.createElement(TechTreeBoardPicker, {
-						boards: this.manager.getKnownBoardFiles().map((file) => ({
-							name: getBoardName(file.path),
-							path: file.path
-						})),
-						onCreateBoard: (name?: string) => {
-							void this.plugin.createBoardAndOpen(undefined, this.leaf, name);
-						},
-						onOpenBoard: (path: string) => {
-							void this.plugin.openBoard(path, this.leaf);
-						}
-					})
+				child
 			)
 		);
 	}

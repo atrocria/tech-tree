@@ -158,6 +158,7 @@ export class TechTreeManager {
 
 			if (listeners.size === 0) {
 				this.listeners.delete(path);
+				this.releaseBoard(path);
 			}
 		};
 	}
@@ -184,7 +185,10 @@ export class TechTreeManager {
 		this.knownTechTreePaths.add(path);
 		this.cacheCanvasInspection(file, true);
 
-		return cloneBoard(board);
+		const clonedBoard = cloneBoard(board);
+		this.releaseBoard(path);
+
+		return clonedBoard;
 	}
 
 	async updateBoard(path: string, board: TechTreeBoard): Promise<TechTreeBoard> {
@@ -201,7 +205,9 @@ export class TechTreeManager {
 		const edges = normalizeEdgesForBoard(nodes, normalizedGoalBoard.edges);
 		const nodesWithImpliedPriorities = applyEdgeImpliedPriorities(nodes, edges);
 		const normalizedEdges = normalizeEdgesForBoard(nodesWithImpliedPriorities, edges);
-		const nodesWithConnections = syncConnectionMetadata(nodesWithImpliedPriorities, normalizedEdges);
+		const nodesWithConnections = canReuseConnectionMetadata(previousBoard, nodesWithImpliedPriorities, normalizedEdges)
+			? nodesWithImpliedPriorities
+			: syncConnectionMetadata(nodesWithImpliedPriorities, normalizedEdges);
 		const nextBoard = applyNodeState({
 			...board,
 			path,
@@ -316,11 +322,6 @@ export class TechTreeManager {
 		return board ? stringifyCanvas(boardToCanvas(board, this.sourceCanvases.get(path))) : null;
 	}
 
-	async loadStickyNote(path: string): Promise<TechTreeStickyNote> {
-		const board = this.boards.get(path) ?? await this.loadBoard(path);
-		return cloneStickyNote(board.stickyNote);
-	}
-
 	async updateStickyNote(path: string, note: TechTreeStickyNote): Promise<TechTreeStickyNote> {
 		const normalizedNote = normalizeStickyNote(note);
 		const board = this.boards.get(path) ?? await this.loadBoard(path);
@@ -369,9 +370,7 @@ export class TechTreeManager {
 			return;
 		}
 
-		const hasInterestedView = this.listeners.has(file.path) || this.boards.has(file.path);
-
-		if (!hasInterestedView) {
+		if (!this.listeners.has(file.path)) {
 			return;
 		}
 
@@ -483,10 +482,21 @@ export class TechTreeManager {
 				return;
 			}
 
-			this.saveBoard(path, pendingBoard).catch((error) => console.error("Failed to save tech tree canvas", error));
+			this.saveBoard(path, pendingBoard)
+				.catch((error) => console.error("Failed to save tech tree canvas", error))
+				.finally(() => this.releaseBoard(path));
 		}, SAVE_DELAY_MS);
 
 		this.saveTimers.set(path, timer);
+	}
+
+	private releaseBoard(path: string): void {
+		if (this.listeners.has(path) || this.pendingSaves.has(path) || this.saveTimers.has(path)) {
+			return;
+		}
+
+		this.boards.delete(path);
+		this.sourceCanvases.delete(path);
 	}
 
 	private async saveBoard(path: string, board: TechTreeBoard): Promise<void> {
@@ -497,6 +507,7 @@ export class TechTreeManager {
 			return;
 		}
 
+		await this.ensureSourceCanvas(path, file);
 		const canvas = boardToCanvas(board, this.sourceCanvases.get(path));
 
 		this.savingPaths.add(path);
@@ -508,6 +519,14 @@ export class TechTreeManager {
 		} finally {
 			window.setTimeout(() => this.savingPaths.delete(path), 500);
 		}
+	}
+
+	private async ensureSourceCanvas(path: string, file = this.getCanvasFile(path)): Promise<void> {
+		if (this.sourceCanvases.has(path) || !file) {
+			return;
+		}
+
+		this.sourceCanvases.set(path, parseCanvas(await this.app.vault.read(file)));
 	}
 
 	private notify(path: string, board: TechTreeBoard): void {
@@ -1107,6 +1126,49 @@ function normalizeEdgesForBoard(nodes: TechTreeNode[], edges: Edge[]): Edge[] {
 	return nextEdges;
 }
 
+function areEdgesEquivalent(firstEdges: Edge[], secondEdges: Edge[]): boolean {
+	if (firstEdges.length !== secondEdges.length) {
+		return false;
+	}
+
+	for (let index = 0; index < firstEdges.length; index += 1) {
+		const first = firstEdges[index];
+		const second = secondEdges[index];
+
+		if (
+			!first
+			|| !second
+			|| first.id !== second.id
+			|| first.source !== second.source
+			|| first.target !== second.target
+			|| first.sourceHandle !== second.sourceHandle
+			|| first.targetHandle !== second.targetHandle
+		) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function canReuseConnectionMetadata(previousBoard: TechTreeBoard | undefined, nodes: TechTreeNode[], edges: Edge[]): boolean {
+	if (!previousBoard || !areEdgesEquivalent(previousBoard.edges, edges)) {
+		return false;
+	}
+
+	const previousNodesById = new Map(previousBoard.nodes.map((node) => [node.id, node]));
+
+	return nodes.every((node) => {
+		const previousNode = previousNodesById.get(node.id);
+
+		if (!previousNode) {
+			return false;
+		}
+
+		return getHiddenMetadataValue(previousNode.data.text, CONNECTIONS_METADATA_KEY) === getHiddenMetadataValue(node.data.text, CONNECTIONS_METADATA_KEY);
+	});
+}
+
 function getDirectionalHandles(source: TechTreeNode, target: TechTreeNode): { sourceHandle: string; targetHandle: string } {
 	const xDelta = target.position.x - source.position.x;
 	const yDelta = target.position.y - source.position.y;
@@ -1122,17 +1184,7 @@ function getDirectionalHandles(source: TechTreeNode, target: TechTreeNode): { so
 		: { sourceHandle: "handle-top", targetHandle: "handle-bottom" };
 }
 
-function getHorizontalHandles(source: TechTreeNode, target: TechTreeNode): { sourceHandle: string; targetHandle: string } {
-	return target.position.x >= source.position.x
-		? { sourceHandle: "handle-right", targetHandle: "handle-left" }
-		: { sourceHandle: "handle-left", targetHandle: "handle-right" };
-}
-
 function getEdgeHandles(source: TechTreeNode, target: TechTreeNode, edge: Edge): { sourceHandle: string; targetHandle: string } {
-	if (source.data.priority === "necessary" && target.data.priority === "necessary") {
-		return getHorizontalHandles(source, target);
-	}
-
 	const directionalHandles = getDirectionalHandles(source, target);
 
 	return {
@@ -1783,6 +1835,18 @@ function getHiddenMetadataMap(text: string): Map<string, string> {
 	}
 
 	return metadata;
+}
+
+function getHiddenMetadataValue(text: string, key: string): string | null {
+	for (const line of normalizeLineEndings(text).split("\n")) {
+		const parsed = parseMetadataLine(line);
+
+		if (parsed?.key === key && HIDDEN_METADATA_KEYS.has(parsed.key)) {
+			return parsed.value;
+		}
+	}
+
+	return null;
 }
 
 function getVisibleNodeLines(text: string): string[] {

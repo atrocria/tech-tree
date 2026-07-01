@@ -7,7 +7,6 @@ import {
 	ConnectionMode,
 	EdgeToolbar,
 	getSmoothStepPath,
-	getStraightPath,
 	Handle,
 	MarkerType,
 	NodeResizer,
@@ -111,9 +110,10 @@ type ConnectionLike = {
 
 type TechTreeEdgeData = Record<string, unknown> & {
 	isQuestView?: boolean;
-	isStraight?: boolean;
 	isPriorityPath?: boolean;
 	useCompletionGradient?: boolean;
+	completionGradientKey?: string;
+	completionGradientStops?: { offset: string; color: string }[];
 	showToolbar?: boolean;
 	onDelete?: (edgeId: string) => void;
 	onReverse?: (edgeId: string) => void;
@@ -386,7 +386,6 @@ const EDGE_CLASSES = {
 type EdgeVisualStyle = {
 	markerColor: string;
 	zIndex: number;
-	isStraight?: boolean;
 };
 const EDGE_VISUAL_STYLES: Partial<Record<string, EdgeVisualStyle>> = {
 	[EDGE_CLASSES.priorityPath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 7000 },
@@ -442,8 +441,6 @@ const MIN_ZOOM_PERCENT = MIN_ZOOM * 100;
 const MAX_ZOOM_PERCENT = MAX_ZOOM * 100;
 const FIT_VIEW_PADDING = 0.18;
 const ORIGIN_VIEWPORT_ZOOM = 1;
-const ZOOM_CONTROLS_TOP_CLEARANCE = 148;
-const ZOOM_CONTROLS_BOTTOM_CLEARANCE = 56;
 const ZOOM_SLIDER_MIN_HEIGHT = 132;
 const ZOOM_SLIDER_MAX_HEIGHT = 340;
 const ZOOM_SLIDER_TRACK_PADDING = 56;
@@ -667,19 +664,6 @@ function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onTo
 		<div
 			ref={controlsRef}
 			className="tech-tree-viewport-controls nodrag nowheel nopan"
-			style={{
-				position: "absolute",
-				top: ZOOM_CONTROLS_TOP_CLEARANCE,
-				right: 8,
-				bottom: ZOOM_CONTROLS_BOTTOM_CLEARANCE,
-				zIndex: 20,
-				display: "flex",
-				flexDirection: "column",
-				alignItems: "center",
-				justifyContent: "center",
-				gap: 6,
-				pointerEvents: "auto"
-			}}
 		>
 			<button
 				type="button"
@@ -687,33 +671,18 @@ function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onTo
 				aria-label={isStickyNoteOpen ? "Minimize sticky note" : "Open sticky note"}
 				aria-pressed={isStickyNoteOpen}
 				onClick={onToggleStickyNote}
-				style={{
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					width: 34,
-					height: 34,
-					padding: 0
-				}}
 			>
 				<StickyNoteIcon className="tech-tree-sticky-note-icon" />
 			</button>
 			<label
 				className="tech-tree-zoom-slider"
 				style={{
-					position: "relative",
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					width: 34,
-					height: sliderHeight,
-					padding: "8px 0"
+					height: sliderHeight
 				}}
 			>
 				<span
 					className="tech-tree-zoom-slider__mark"
 					aria-hidden="true"
-					style={{ position: "absolute", top: 8, left: 0, width: "100%", textAlign: "center" }}
 				>
 					+
 				</span>
@@ -726,20 +695,12 @@ function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onTo
 					aria-label="Zoom"
 					onChange={handleZoomChange}
 					style={{
-						position: "absolute",
-						top: "50%",
-						left: "50%",
 						width: sliderTrackLength,
-						height: 18,
-						margin: 0,
-						transform: "translate(-50%, -50%) rotate(-90deg)",
-						transformOrigin: "center"
 					}}
 				/>
 				<span
 					className="tech-tree-zoom-slider__mark"
 					aria-hidden="true"
-					style={{ position: "absolute", bottom: 8, left: 0, width: "100%", textAlign: "center" }}
 				>
 					-
 				</span>
@@ -749,14 +710,6 @@ function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onTo
 				className="tech-tree-fit-view-button"
 				aria-label="Fit board to view"
 				onClick={handleFitView}
-				style={{
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					width: 34,
-					height: 34,
-					padding: 0
-				}}
 			>
 				<FitViewIcon className="tech-tree-fit-view-icon" />
 			</button>
@@ -942,6 +895,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 	const historyRef = useRef<BoardHistory>({ undos: [], redos: [] });
 	const boardRef = useRef<TechTreeBoard | null>(null);
 	const activeBoardRef = useRef<TechTreeBoard | null>(null);
+	const activeBoardPathRef = useRef<string | null>(null);
 	const reconnectingEdgeConnectionKeyRef = useRef<string | null>(null);
 	const persistSequenceRef = useRef(0);
 	const transientBoardDirtyRef = useRef(false);
@@ -973,6 +927,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 	const [isStickyNoteOpen, setIsStickyNoteOpen] = useState(false);
 	const [priorityPathState, setPriorityPathState] = useState<PriorityPathState>(() => createEmptyPriorityPathState());
 	const priorityPathStateRef = useRef<PriorityPathState>(priorityPathState);
+	const centerViewportAtOriginRef = useRef<() => void>(() => undefined);
 	const centerViewportAtOrigin = useCallback(() => {
 		window.requestAnimationFrame(() => {
 			void reactFlow.setCenter(0, 0, {
@@ -981,6 +936,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 			});
 		});
 	}, [reactFlow]);
+	centerViewportAtOriginRef.current = centerViewportAtOrigin;
 
 	const flushStickyNoteSave = useCallback(() => {
 		const pendingSave = stickyNoteSaveRef.current;
@@ -1027,31 +983,6 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 	}, [boardPath, flushStickyNoteSave]);
 
 	useEffect(() => {
-		let disposed = false;
-		flushStickyNoteSave();
-		setStickyNote({ ...DEFAULT_STICKY_NOTE });
-		setIsStickyNoteOpen(false);
-
-		manager.loadStickyNote(boardPath)
-			.then((nextNote) => {
-				if (!disposed) {
-					setStickyNote(nextNote);
-					setIsStickyNoteOpen(nextNote.isOpen);
-				}
-			})
-			.catch((loadError: unknown) => {
-				if (!disposed) {
-					console.error("Failed to load tech tree sticky note", loadError);
-				}
-			});
-
-		return () => {
-			disposed = true;
-			flushStickyNoteSave();
-		};
-	}, [boardPath, flushStickyNoteSave, manager]);
-
-	useEffect(() => {
 		if (!board || stickyNoteSaveRef.current.note) {
 			return;
 		}
@@ -1082,9 +1013,22 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 
 	useEffect(() => {
 		let disposed = false;
+		activeBoardPathRef.current = boardPath;
+		flushStickyNoteSave();
 		clearTransientBoardUpdate();
 		transientBoardDirtyRef.current = false;
 		historyRef.current = { undos: [], redos: [] };
+		flowNodeCacheRef.current.clear();
+		flowEdgeCacheRef.current.clear();
+		boardRef.current = null;
+		activeBoardRef.current = null;
+		setBoard(null);
+		setError(null);
+		setStickyNote({ ...DEFAULT_STICKY_NOTE });
+		setIsStickyNoteOpen(false);
+		const emptyPriorityPathState = createEmptyPriorityPathState();
+		priorityPathStateRef.current = emptyPriorityPathState;
+		setPriorityPathState(emptyPriorityPathState);
 		const unsubscribe = manager.subscribe(boardPath, (nextBoard) => {
 			if (!disposed) {
 				applyBoardState(nextBoard);
@@ -1096,7 +1040,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 				if (!disposed) {
 					applyBoardState(nextBoard);
 					setError(null);
-					centerViewportAtOrigin();
+					centerViewportAtOriginRef.current();
 				}
 			})
 			.catch((loadError: unknown) => {
@@ -1107,9 +1051,19 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 
 		return () => {
 			disposed = true;
+			flushStickyNoteSave();
 			unsubscribe();
+			clearTransientBoardUpdate();
+			transientBoardDirtyRef.current = false;
+			flowNodeCacheRef.current.clear();
+			flowEdgeCacheRef.current.clear();
+			boardRef.current = null;
+			activeBoardRef.current = null;
+			if (activeBoardPathRef.current === boardPath) {
+				activeBoardPathRef.current = null;
+			}
 		};
-	}, [applyBoardState, boardPath, centerViewportAtOrigin, clearTransientBoardUpdate, manager]);
+	}, [applyBoardState, boardPath, clearTransientBoardUpdate, flushStickyNoteSave, manager]);
 
 	const updateBoardLocal = useCallback((nextBoard: TechTreeBoard, options: ApplyBoardStateOptions = {}) => {
 		applyBoardState(nextBoard, options);
@@ -1182,21 +1136,20 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 			}
 
 			try {
-				const savedBoard = await manager.updateBoard(boardPath, nextBoard);
+				await manager.updateBoard(boardPath, nextBoard);
 
-				if (persistSequence === persistSequenceRef.current) {
-					applyBoardState(savedBoard);
+				if (persistSequence === persistSequenceRef.current && activeBoardPathRef.current === boardPath) {
 					setError(null);
 				}
 			} catch (saveError) {
 				console.error("Failed to update tech tree board", saveError);
 
-				if (persistSequence === persistSequenceRef.current) {
+				if (persistSequence === persistSequenceRef.current && activeBoardPathRef.current === boardPath) {
 					setError(saveError instanceof Error ? saveError.message : "Unable to update tech tree board.");
 				}
 			}
 		},
-		[applyBoardState, boardPath, manager]
+		[boardPath, manager]
 	);
 
 	const undoBoardChange = useCallback(
@@ -1627,6 +1580,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 			const selectedEdgeCount = activeBoard?.edges.filter((edge) => edge.selected).length ?? 0;
 			const showSelectedEdgeToolbar = selectedNodeCount === 0 && selectedEdgeCount === 1;
 			const nextEdgeIds = new Set<string>();
+			const completionEdgeGradient = isBoardComplete ? getCompletionGradientDefinition(colorSeries) : null;
 
 			const nextEdges = activeBoard?.edges.flatMap((edge) => {
 				const source = flowNodesById.get(edge.source);
@@ -1660,9 +1614,10 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 					data: {
 						...edge.data,
 						isQuestView,
-						isStraight: edgeVisualStyle.isStraight,
 						isPriorityPath,
 						useCompletionGradient,
+						completionGradientKey: useCompletionGradient ? completionEdgeGradient?.treeGradient : undefined,
+						completionGradientStops: useCompletionGradient ? completionEdgeGradient?.border.stops : undefined,
 						showToolbar: showSelectedEdgeToolbar,
 						onDelete: handleDeleteEdge,
 						onReverse: handleReverseEdge
@@ -1678,7 +1633,7 @@ function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTr
 			pruneCache(flowEdgeCacheRef.current, nextEdgeIds);
 			return nextEdges;
 		},
-		[activeBoard?.edges, activeBoard?.nodes, flowNodesById, handleDeleteEdge, handleReverseEdge, isBoardComplete, isQuestView, priorityPathState]
+		[activeBoard?.edges, activeBoard?.nodes, colorSeries, flowNodesById, handleDeleteEdge, handleReverseEdge, isBoardComplete, isQuestView, priorityPathState]
 	);
 
 	const flowConnectionKeys = useMemo(
@@ -2954,12 +2909,6 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 	const hasQuestPrerequisite = Boolean(nodeData.hasQuestPrerequisite);
 	const priorityOptions = PRIORITY_OPTIONS.filter((option) => option.value !== "goal" || nodeData.priority === "goal" || !nodeData.hasOtherGoalNode);
 	const priorityOrder = clampPriorityOrder(nodeData.priorityOrder);
-	const showsDottedBorder = !completed
-		&& !isPlacementPreview
-		&& (
-			nodeData.priority === "quest"
-			|| (nodeData.priority === "necessary" && !hasCheckedNeighbor)
-		);
 	const nodeClassName = [
 		"tech-tree-node",
 		`is-status-${nodeData.statusKind}`,
@@ -3001,11 +2950,6 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 
 	return (
 		<div className={nodeClassName} aria-disabled={locked || isPlacementPreview}>
-			{showsDottedBorder ? (
-				<svg className="tech-tree-node__dashed-border" aria-hidden="true" focusable="false">
-					<rect className="tech-tree-node__dashed-border-rect" />
-				</svg>
-			) : null}
 			{boardPath ? (
 				<button
 					type="button"
@@ -3265,9 +3209,9 @@ function areFlowEdgesEquivalent(first: Edge, second: Edge): boolean {
 		&& getMarkerType(first.markerEnd) === getMarkerType(second.markerEnd)
 		&& getMarkerColor(first.markerEnd) === getMarkerColor(second.markerEnd)
 		&& first.data?.isQuestView === second.data?.isQuestView
-		&& first.data?.isStraight === second.data?.isStraight
 		&& first.data?.isPriorityPath === second.data?.isPriorityPath
 		&& first.data?.useCompletionGradient === second.data?.useCompletionGradient
+		&& first.data?.completionGradientKey === second.data?.completionGradientKey
 		&& first.data?.showToolbar === second.data?.showToolbar
 		&& first.data?.onDelete === second.data?.onDelete
 		&& first.data?.onReverse === second.data?.onReverse;
@@ -4690,28 +4634,24 @@ function TechTreeEdge({
 	data,
 	interactionWidth
 }: EdgeProps<Edge<TechTreeEdgeData>>) {
-	const [edgePath, labelX, labelY] = data?.isStraight
-		? getStraightPath({
-			sourceX,
-			sourceY,
-			targetX,
-			targetY
-		})
-		: getSmoothStepPath({
-			sourceX,
-			sourceY,
-			sourcePosition,
-			targetX,
-			targetY,
-			targetPosition,
-			borderRadius: 18,
-			offset: 10
-		});
+	const [edgePath, labelX, labelY] = getSmoothStepPath({
+		sourceX,
+		sourceY,
+		sourcePosition,
+		targetX,
+		targetY,
+		targetPosition,
+		borderRadius: 18,
+		offset: 10
+	});
 	const useCompletionGradient = data?.useCompletionGradient === true;
+	const edgeGradientId = useCompletionGradient && data?.completionGradientStops?.length
+		? `${COMPLETION_EDGE_GRADIENT_ID}-${getSafeSvgId(id)}`
+		: null;
 	const edgeStyle = useCompletionGradient
 		? {
 			...style,
-			stroke: `url(#${COMPLETION_EDGE_GRADIENT_ID})`
+			stroke: edgeGradientId ? `url(#${edgeGradientId})` : `url(#${COMPLETION_EDGE_GRADIENT_ID})`
 		}
 		: style;
 	const edgeMarkerEnd = useCompletionGradient
@@ -4720,6 +4660,22 @@ function TechTreeEdge({
 
 	return (
 		<>
+			{edgeGradientId ? (
+				<defs>
+					<linearGradient
+						id={edgeGradientId}
+						gradientUnits="userSpaceOnUse"
+						x1={sourceX}
+						y1={sourceY}
+						x2={targetX}
+						y2={targetY}
+					>
+						{data?.completionGradientStops?.map((stop) => (
+							<stop key={`${stop.offset}-${stop.color}`} offset={stop.offset} stopColor={stop.color} />
+						))}
+					</linearGradient>
+				</defs>
+			) : null}
 			<BaseEdge
 				id={id}
 				path={edgePath}
@@ -4753,6 +4709,10 @@ function TechTreeEdge({
 			) : null}
 		</>
 	);
+}
+
+function getSafeSvgId(value: string): string {
+	return value.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 function createEdgeId(connection: Connection): string {
@@ -5038,8 +4998,7 @@ function getEdgeVisualStyle(className: string): EdgeVisualStyle {
 
 	return {
 		markerColor: primaryStyle?.markerColor ?? EDGE_MARKER_COLORS.default,
-		zIndex: primaryStyle?.zIndex ?? 0,
-		isStraight: classTokens.some((classToken) => EDGE_VISUAL_STYLES[classToken]?.isStraight === true)
+		zIndex: primaryStyle?.zIndex ?? 0
 	};
 }
 
@@ -5103,17 +5062,7 @@ function isAllowedPriorityEdge(source: TechTreeNode, target: TechTreeNode): bool
 		&& !(source.data.priority === "quest" && target.data.priority === "necessary");
 }
 
-function getHorizontalHandles(source: TechTreeNode, target: TechTreeNode): { sourceHandle: string; targetHandle: string } {
-	return target.position.x >= source.position.x
-		? { sourceHandle: "handle-right", targetHandle: "handle-left" }
-		: { sourceHandle: "handle-left", targetHandle: "handle-right" };
-}
-
 function getEdgeHandles(source: TechTreeNode, target: TechTreeNode, edge: ConnectionLike): { sourceHandle: string; targetHandle: string } {
-	if (source.data.priority === "necessary" && target.data.priority === "necessary") {
-		return getHorizontalHandles(source, target);
-	}
-
 	const directionalHandles = getDirectionalHandles(source, target);
 
 	return {
