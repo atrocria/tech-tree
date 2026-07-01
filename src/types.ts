@@ -20,6 +20,7 @@ export type TechTreeNodeData = Record<string, unknown> & {
 	questViewMode: boolean;
 	boardPath: string | null;
 	isQuestView?: boolean;
+	isPriorityPathNode?: boolean;
 	isPlacementPreview?: boolean;
 	onTextChange?: (nodeId: string, text: string) => void;
 	onCompletedChange?: (nodeId: string, completed: boolean) => void;

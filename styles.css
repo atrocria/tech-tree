@@ -22,15 +22,18 @@
 .tech-tree-shell {
 	/* Change palette, dotted-line thickness, and dash spacing here. */
 	--tech-tree-progress: #f97316;
-	--tech-tree-done: #22c55e;
+	--tech-tree-done: #74d99f;
 	--tech-tree-edge: #7c8490;
 	--tech-tree-quest: #60a5fa;
+	--tech-tree-quest-soft: #93c5fd;
+	--tech-tree-goal-gradient-start: hsla(186, 33%, 94%, 1);
+	--tech-tree-goal-gradient-end: hsla(216, 58%, 58%, 1);
+	--tech-tree-goal-tree-gradient: linear-gradient(180deg, var(--tech-tree-goal-gradient-start) 0%, var(--tech-tree-goal-gradient-end) 100%);
 	--tech-tree-necessary-path: #7c8490;
-	--tech-tree-dotted-line-width: 3px;
-	--tech-tree-dotted-edge-pattern: 1 9;
+	--tech-tree-dotted-line-width: 4px;
+	--tech-tree-dotted-edge-pattern: 9 9;
 	--tech-tree-canvas: var(--background-primary);
 	--tech-tree-card: #24282e;
-	--tech-tree-card-hover: #2a3038;
 	--tech-tree-card-text: #f2f5f8;
 	--tech-tree-muted-text: #a5adba;
 	contain: content;
@@ -43,6 +46,14 @@
 
 .tech-tree-shell.is-placing-node {
 	cursor: crosshair;
+}
+
+.tech-tree-svg-defs {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	pointer-events: none;
 }
 
 .tech-tree-empty {
@@ -374,13 +385,24 @@
 	height: 500px;
 	pointer-events: none;
 	user-select: none;
-	opacity: 0.14;
 }
 
 .tech-tree-origin-background img {
 	display: block;
 	width: 500px;
 	height: 500px;
+	opacity: 0.14;
+	pointer-events: none;
+}
+
+.tech-tree-origin-background.is-complete::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: var(--tech-tree-goal-tree-gradient);
+	mask: var(--tech-tree-origin-image) center / contain no-repeat;
+	-webkit-mask: var(--tech-tree-origin-image) center / contain no-repeat;
+	opacity: 0.42;
 	pointer-events: none;
 }
 
@@ -465,25 +487,18 @@
 }
 
 .react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path {
 	stroke: var(--tech-tree-quest);
 }
 
-.react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path {
+.react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-complete .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path {
 	stroke: var(--tech-tree-done);
-	stroke-width: 3;
+	stroke-width: var(--tech-tree-dotted-line-width);
 	stroke-dasharray: none;
-	stroke-linecap: butt;
-	opacity: 1;
-}
-
-.react-flow__edge.tech-tree-edge.is-necessary-complete .react-flow__edge-path {
-	stroke: var(--tech-tree-done);
-	stroke-width: 3;
-	stroke-dasharray: none;
-	stroke-linecap: butt;
+	stroke-linecap: round;
 	opacity: 1;
 }
 
@@ -509,7 +524,6 @@
 	stroke-dasharray: var(--tech-tree-dotted-edge-pattern);
 	stroke-linecap: round;
 	opacity: 1;
-	filter: drop-shadow(0 0 5px rgba(249, 115, 22, 0.95)) drop-shadow(0 0 12px rgba(249, 115, 22, 0.48));
 }
 
 .react-flow__edge.selected .react-flow__edge-path,
@@ -521,27 +535,19 @@
 	cursor: grab;
 	fill: transparent;
 	stroke: transparent;
-	stroke-width: 2;
-	transition: fill 120ms ease, stroke 120ms ease;
+	opacity: 0;
+	pointer-events: all;
+	transition: none;
 }
 
 .react-flow__edge:hover .react-flow__edgeupdater,
 .react-flow__edge.selected .react-flow__edgeupdater,
-.react-flow__edge.updating .react-flow__edgeupdater {
-	fill: rgba(165, 173, 186, 0.18);
-	stroke: rgba(165, 173, 186, 0.72);
-}
-
-.react-flow__edgeupdater:hover {
-	cursor: grabbing;
-	fill: rgba(249, 115, 22, 0.2);
-	stroke: var(--tech-tree-progress);
-}
-
-.react-flow__edge.is-hover-source .react-flow__edgeupdater-source,
+.react-flow__edge.updating .react-flow__edgeupdater,
+.react-flow__edgeupdater:hover,
 .react-flow__edge.is-hover-target .react-flow__edgeupdater-target {
-	fill: rgba(96, 165, 250, 0.22);
-	stroke: rgba(147, 197, 253, 0.95);
+	fill: transparent;
+	stroke: transparent;
+	opacity: 0;
 }
 
 .react-flow__node {
@@ -619,8 +625,8 @@
 .react-flow__handle.connectingfrom::after,
 .react-flow__handle.connectingto::after,
 .react-flow__handle.valid::after {
-	width: 22px;
-	height: 22px;
+	width: 26px;
+	height: 26px;
 	border-color: rgba(255, 255, 255, 0.72);
 	opacity: 1;
 }
@@ -632,6 +638,7 @@
 .react-flow__handle-valid::after,
 .react-flow__handle.valid::after {
 	background: var(--tech-tree-progress);
+	box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.18);
 }
 
 .tech-tree-port {
@@ -877,7 +884,9 @@
 
 .tech-tree-node {
 	--tech-tree-node-border-color: transparent;
-	--tech-tree-node-border-width: 3px;
+	--tech-tree-node-border-width: 4px;
+	--tech-tree-node-dotted-border-opacity: 0;
+	--tech-tree-node-dotted-border-dash: 9 9;
 	--tech-tree-node-fill: var(--tech-tree-card);
 	position: relative;
 	display: flex;
@@ -892,10 +901,37 @@
 	background: var(--tech-tree-node-fill);
 	color: var(--tech-tree-card-text);
 	overflow: visible;
-	transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+	transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
-.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.tech-tree-node__priority-order):not(.tech-tree-node__board-link) {
+.tech-tree-node__dashed-border {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	opacity: var(--tech-tree-node-dotted-border-opacity);
+	overflow: visible;
+	pointer-events: none;
+}
+
+.tech-tree-node__dashed-border-rect {
+	x: calc(var(--tech-tree-node-border-width) / 2);
+	y: calc(var(--tech-tree-node-border-width) / 2);
+	width: calc(100% - var(--tech-tree-node-border-width));
+	height: calc(100% - var(--tech-tree-node-border-width));
+	rx: 8px;
+	ry: 8px;
+	fill: none;
+	stroke: var(--tech-tree-node-border-color);
+	stroke-width: var(--tech-tree-node-border-width);
+	stroke-dasharray: var(--tech-tree-node-dotted-border-dash);
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	vector-effect: non-scaling-stroke;
+}
+
+.tech-tree-node > :not(.react-flow__handle):not(.react-flow__resize-control):not(.tech-tree-node__priority-order):not(.tech-tree-node__board-link):not(.tech-tree-node__dashed-border) {
 	position: relative;
 	z-index: 2;
 }
@@ -934,7 +970,6 @@
 }
 
 .tech-tree-node:hover {
-	--tech-tree-node-fill: var(--tech-tree-card-hover);
 	background: var(--tech-tree-node-fill);
 }
 
@@ -990,54 +1025,82 @@
 
 .tech-tree-node.is-completed {
 	--tech-tree-node-border-color: var(--tech-tree-done);
-	--tech-tree-node-fill: #2b2825;
-	background: var(--tech-tree-node-fill);
-	color: var(--tech-tree-card-text);
+	--tech-tree-node-dotted-border-opacity: 0;
+	border-color: var(--tech-tree-node-border-color);
 	opacity: 1;
 }
 
 .tech-tree-node.is-priority-quest.is-unlocked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-quest);
-	border-style: dotted;
+	--tech-tree-node-border-color: var(--tech-tree-quest-soft);
+	--tech-tree-node-dotted-border-opacity: 1;
+	border-color: transparent;
+	border-style: solid;
 	border-width: var(--tech-tree-dotted-line-width);
 }
 
 .tech-tree-node.is-priority-quest.is-locked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-quest);
-	border-style: dotted;
+	--tech-tree-node-border-color: var(--tech-tree-quest-soft);
+	--tech-tree-node-dotted-border-opacity: 1;
+	border-color: transparent;
+	border-style: solid;
 	border-width: var(--tech-tree-dotted-line-width);
 }
 
 .tech-tree-node.is-priority-quest.is-locked.has-quest-prerequisite:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-edge);
-	border-style: dotted;
-	border-width: var(--tech-tree-dotted-line-width);
-}
-
-.tech-tree-node.is-priority-quest.is-completed {
-	--tech-tree-node-border-color: var(--tech-tree-quest);
-	--tech-tree-node-fill: #202a34;
-	border-style: dotted;
-	border-width: var(--tech-tree-dotted-line-width);
-	background: var(--tech-tree-node-fill);
-}
-
-.tech-tree-node.is-priority-necessary.is-unlocked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-progress);
-	border-style: dotted;
-	border-width: var(--tech-tree-dotted-line-width);
-}
-
-.tech-tree-node.is-priority-necessary.is-unlocked.has-checked-neighbor:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-progress);
+	--tech-tree-node-dotted-border-opacity: 1;
+	border-color: transparent;
 	border-style: solid;
 	border-width: var(--tech-tree-dotted-line-width);
 }
 
+.tech-tree-node.is-priority-necessary.is-unlocked:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	--tech-tree-node-dotted-border-opacity: 1;
+	border-color: transparent;
+	border-style: solid;
+	border-width: var(--tech-tree-dotted-line-width);
+}
+
+.tech-tree-node.is-priority-necessary.is-priority-path-node:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+}
+
+.tech-tree-node.is-priority-necessary.is-unlocked.has-checked-neighbor:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+	--tech-tree-node-dotted-border-opacity: 0;
+	border-color: var(--tech-tree-node-border-color);
+	border-style: solid;
+	border-width: var(--tech-tree-dotted-line-width);
+}
+
+.tech-tree-node.is-priority-necessary.is-priority-path-node.has-checked-neighbor:not(.is-completed) {
+	--tech-tree-node-border-color: var(--tech-tree-progress);
+}
+
 .tech-tree-node.is-priority-necessary.is-locked:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
-	border-style: dotted;
+	--tech-tree-node-dotted-border-opacity: 1;
+	border-color: transparent;
+	border-style: solid;
 	border-width: var(--tech-tree-dotted-line-width);
+}
+
+.tech-tree-node.is-priority-goal:not(.is-completed) {
+	--tech-tree-node-border-color: transparent;
+	--tech-tree-node-dotted-border-opacity: 0;
+	border-color: transparent;
+}
+
+.tech-tree-shell.is-board-complete .tech-tree-node.is-completed,
+.tech-tree-shell.is-board-complete .tech-tree-node.is-completed:hover {
+	--tech-tree-node-border-color: var(--tech-tree-goal-gradient-end);
+	--tech-tree-node-dotted-border-opacity: 0;
+	border-color: transparent;
+	background:
+		linear-gradient(var(--tech-tree-card), var(--tech-tree-card)) padding-box,
+		var(--tech-tree-completion-gradient) border-box;
+	color: var(--tech-tree-card-text);
 }
 
 .tech-tree-node.is-placement-preview {
@@ -1134,9 +1197,9 @@
 	background: var(--tech-tree-done);
 }
 
-.tech-tree-node.is-priority-quest .tech-tree-node__done input:checked + span {
-	border-color: var(--tech-tree-quest);
-	background: var(--tech-tree-quest);
+.tech-tree-shell.is-board-complete .tech-tree-node__done input:checked + span {
+	border-color: transparent;
+	background: var(--tech-tree-completion-gradient);
 }
 
 .tech-tree-node__done input:checked + span::after {

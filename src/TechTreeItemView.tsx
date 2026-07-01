@@ -17,9 +17,12 @@ import {
 } from "./TechTreeManager";
 import { TechTreeApp, TechTreeBoardPicker } from "./TechTreeView";
 import { TECH_TREE_ICON, TECH_TREE_VIEW_TYPE } from "./constants";
+import type { TechTreeSettings } from "./settings";
 
 export interface TechTreePluginHost {
 	app: App;
+	getSettings(): TechTreeSettings;
+	onSettingsChange(listener: () => void): () => void;
 	createBoardAndOpen(folder?: TFolder, leaf?: WorkspaceLeaf | null, name?: string): Promise<void>;
 	openBoardPicker(leaf?: WorkspaceLeaf | null): Promise<void>;
 	openBoard(path: string, leaf?: WorkspaceLeaf | null): Promise<void>;
@@ -28,6 +31,7 @@ export interface TechTreePluginHost {
 
 export class TechTreeItemView extends TextFileView {
 	private root: Root | null = null;
+	private unsubscribeSettings: (() => void) | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -90,6 +94,10 @@ export class TechTreeItemView extends TextFileView {
 		await super.onOpen();
 		this.contentEl.empty();
 		this.contentEl.addClass("tech-tree-view-container");
+		this.unsubscribeSettings?.();
+		this.unsubscribeSettings = this.plugin.onSettingsChange(() => {
+			this.render();
+		});
 
 		this.addAction("folder-open", "Open board", () => {
 			void this.plugin.openBoardPicker(this.leaf);
@@ -102,6 +110,8 @@ export class TechTreeItemView extends TextFileView {
 
 	async onClose() {
 		await super.onClose();
+		this.unsubscribeSettings?.();
+		this.unsubscribeSettings = null;
 		this.root?.unmount();
 		this.root = null;
 		this.contentEl.removeClass("tech-tree-view-container");
@@ -133,6 +143,7 @@ export class TechTreeItemView extends TextFileView {
 					? React.createElement(TechTreeApp, {
 						boardPath: this.file.path,
 						manager: this.manager,
+						colorSeries: this.plugin.getSettings().colorSeries,
 						onOpenBoard: (path: string) => {
 							void this.plugin.openBoard(path, this.leaf);
 						}

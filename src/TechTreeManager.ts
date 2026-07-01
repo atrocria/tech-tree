@@ -1,4 +1,4 @@
-import { Notice, TFile, type App, type Plugin, type TFolder } from "obsidian";
+import { Notice, TFile, type App, type TFolder } from "obsidian";
 import type { Edge, XYPosition } from "@xyflow/react";
 import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressState, TechTreeStatusKind, TechTreeStickyNote } from "./types";
 
@@ -48,13 +48,8 @@ type TechTreeConnectionMetadata = {
 
 type BoardListener = (board: TechTreeBoard) => void;
 
-type TechTreePluginData = Record<string, unknown> & {
-	stickyNotes?: Record<string, Partial<TechTreeStickyNote> | undefined>;
-};
-
 export const DEFAULT_BOARD_NAME = "untitled tech-tree";
 const BOARD_EXTENSION = ".canvas";
-const LEGACY_BOARD_SUFFIX = "(metadata).canvas";
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 130;
 const STICKY_NOTE_CANVAS_NODE_ID = "tech-tree-sticky-note";
@@ -83,8 +78,10 @@ const METADATA_LINE_PATTERN = /^([a-z][\w -]*):\s*(.*)$/i;
 type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "priorityOrder" | "status" | "completed" | "questViewMode"> & {
 	boardPath: string | null;
 	connections: TechTreeConnectionMetadata[];
+	hiddenMetadata: Map<string, string>;
 	partial: boolean;
 	statusKind: TechTreeStatusKind;
+	visibleLines: string[];
 };
 
 type ApplyNodeStateOptions = {
@@ -109,16 +106,14 @@ export class TechTreeManager {
 	private savingPaths = new Set<string>();
 
 	private constructor(
-		private app: App,
-		private plugin: Plugin
+		private app: App
 	) {}
 
-	static getInstance(app: App, plugin: Plugin): TechTreeManager {
+	static getInstance(app: App): TechTreeManager {
 		if (!TechTreeManager.instance) {
-			TechTreeManager.instance = new TechTreeManager(app, plugin);
+			TechTreeManager.instance = new TechTreeManager(app);
 		} else {
 			TechTreeManager.instance.app = app;
-			TechTreeManager.instance.plugin = plugin;
 		}
 
 		return TechTreeManager.instance;
@@ -323,14 +318,6 @@ export class TechTreeManager {
 
 	async loadStickyNote(path: string): Promise<TechTreeStickyNote> {
 		const board = this.boards.get(path) ?? await this.loadBoard(path);
-		const legacyNote = await this.loadLegacyStickyNote(path);
-
-		if (isDefaultStickyNote(board.stickyNote) && !isDefaultStickyNote(legacyNote)) {
-			const migratedNote = await this.updateStickyNote(path, legacyNote);
-			void this.clearLegacyStickyNote(path);
-			return migratedNote;
-		}
-
 		return cloneStickyNote(board.stickyNote);
 	}
 
@@ -367,7 +354,6 @@ export class TechTreeManager {
 			const canvas = parseCanvas(rawCanvas);
 			const isTechTree = canvasHasTechTreeGoal(canvas);
 
-			this.sourceCanvases.set(file.path, canvas);
 			this.cacheCanvasInspection(file, isTechTree);
 			this.updateKnownTechTreePath(file.path, isTechTree);
 
@@ -524,36 +510,6 @@ export class TechTreeManager {
 		}
 	}
 
-	private async loadLegacyStickyNote(path: string): Promise<TechTreeStickyNote> {
-		try {
-			const data = normalizePluginData(await this.plugin.loadData());
-			return normalizeStickyNote(data.stickyNotes?.[path]);
-		} catch (error) {
-			console.error("Failed to load legacy tech tree sticky note", error);
-			return { ...DEFAULT_STICKY_NOTE };
-		}
-	}
-
-	private async clearLegacyStickyNote(path: string): Promise<void> {
-		try {
-			const data = normalizePluginData(await this.plugin.loadData());
-
-			if (!data.stickyNotes?.[path]) {
-				return;
-			}
-
-			const stickyNotes = { ...data.stickyNotes };
-			delete stickyNotes[path];
-
-			await this.plugin.saveData({
-				...data,
-				stickyNotes
-			});
-		} catch (error) {
-			console.error("Failed to clear legacy tech tree sticky note", error);
-		}
-	}
-
 	private notify(path: string, board: TechTreeBoard): void {
 		const listeners = this.listeners.get(path);
 
@@ -611,11 +567,6 @@ export function isTechTreeCanvasPath(path: string): boolean {
 
 export function getBoardName(path: string): string {
 	const fileName = path.split("/").pop() ?? DEFAULT_BOARD_NAME;
-
-	if (fileName.endsWith(LEGACY_BOARD_SUFFIX)) {
-		return fileName.slice(0, -LEGACY_BOARD_SUFFIX.length) || DEFAULT_BOARD_NAME;
-	}
-
 	return fileName.replace(/\.canvas$/i, "") || DEFAULT_BOARD_NAME;
 }
 
@@ -646,21 +597,6 @@ async function getCanvasFileChecks(
 	return checks;
 }
 
-function normalizePluginData(data: unknown): TechTreePluginData {
-	if (!isRecord(data)) {
-		return {};
-	}
-
-	const stickyNotes = isRecord(data.stickyNotes)
-		? Object.fromEntries(Object.entries(data.stickyNotes).map(([path, note]) => [path, normalizeStickyNote(note)]))
-		: undefined;
-
-	return {
-		...data,
-		...(stickyNotes ? { stickyNotes } : {})
-	};
-}
-
 function normalizeStickyNote(note: unknown): TechTreeStickyNote {
 	if (!isRecord(note)) {
 		return { ...DEFAULT_STICKY_NOTE };
@@ -670,15 +606,8 @@ function normalizeStickyNote(note: unknown): TechTreeStickyNote {
 		text: typeof note.text === "string" ? note.text : DEFAULT_STICKY_NOTE.text,
 		x: getNumber(note.x, DEFAULT_STICKY_NOTE.x),
 		y: getNumber(note.y, DEFAULT_STICKY_NOTE.y),
-		isOpen: typeof note.isOpen === "boolean" ? note.isOpen : normalizeBooleanMetadata(typeof note.open === "string" ? note.open : undefined)
+		isOpen: typeof note.isOpen === "boolean" ? note.isOpen : DEFAULT_STICKY_NOTE.isOpen
 	};
-}
-
-function isDefaultStickyNote(note: TechTreeStickyNote): boolean {
-	return note.text === DEFAULT_STICKY_NOTE.text
-		&& note.x === DEFAULT_STICKY_NOTE.x
-		&& note.y === DEFAULT_STICKY_NOTE.y
-		&& note.isOpen === DEFAULT_STICKY_NOTE.isOpen;
 }
 
 function cloneStickyNote(note: TechTreeStickyNote): TechTreeStickyNote {
@@ -822,7 +751,25 @@ function parseCanvas(rawCanvas: string): CanvasFile {
 }
 
 function canvasHasTechTreeGoal(canvas: CanvasFile): boolean {
-	return canvas.nodes.some((node) => isCanvasTextNode(node) && !isStickyNoteCanvasNode(node) && parseNodeText(node.text).priority === "goal");
+	return canvas.nodes.some((node) => (
+		isCanvasTextNode(node)
+		&& !isStickyNoteCanvasNode(node)
+		&& getNodeTextPriority(node.text) === "goal"
+	));
+}
+
+function getNodeTextPriority(text: string): TechTreePriority {
+	let priority: TechTreePriority | null = null;
+
+	for (const line of normalizeLineEndings(text).split("\n")) {
+		const metadata = parseMetadataLine(line);
+
+		if (metadata?.key === "priority") {
+			priority = normalizePriority(metadata.value);
+		}
+	}
+
+	return priority ?? normalizePriority(undefined);
 }
 
 function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
@@ -1003,8 +950,13 @@ function getStickyNoteCanvasNodePosition(nodes: TechTreeNode[]): XYPosition {
 		};
 	}
 
-	const left = Math.min(...nodes.map((node) => node.position.x));
-	const top = Math.min(...nodes.map((node) => node.position.y));
+	let left = Number.POSITIVE_INFINITY;
+	let top = Number.POSITIVE_INFINITY;
+
+	for (const node of nodes) {
+		left = Math.min(left, node.position.x);
+		top = Math.min(top, node.position.y);
+	}
 
 	return {
 		x: Math.round(left - STICKY_NOTE_CANVAS_NODE_WIDTH - STICKY_NOTE_CANVAS_NODE_GAP),
@@ -1260,9 +1212,15 @@ function syncConnectionMetadata(nodes: TechTreeNode[], edges: Edge[]): TechTreeN
 
 	return nodes.map((node) => {
 		const connections = outgoingBySource.get(node.id) ?? [];
-		const text = connections.length > 0
-			? upsertHiddenMetadata(node.data.text, CONNECTIONS_METADATA_KEY, stringifyConnectionMetadata(connections))
-			: removeHiddenMetadata(node.data.text, CONNECTIONS_METADATA_KEY);
+		const parsed = parseNodeText(node.data.text);
+		const nextConnectionMetadata = connections.length > 0
+			? stringifyConnectionMetadata(connections)
+			: null;
+		const text = setParsedHiddenMetadata(parsed, node.data.text, CONNECTIONS_METADATA_KEY, nextConnectionMetadata);
+
+		if (text === node.data.text) {
+			return node;
+		}
 
 		return {
 			...node,
@@ -1392,9 +1350,10 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 				return false;
 			}
 
-			return !source || isLocked(source.id, new Set(seen)) || !isParsedNodeUnlocked(parsedById.get(source.id));
+			return !source || isLocked(source.id, seen) || !isParsedNodeUnlocked(parsedById.get(source.id));
 		});
 
+		seen.delete(nodeId);
 		lockCache.set(nodeId, locked);
 		return locked;
 	};
@@ -1420,7 +1379,7 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 				...node,
 				data: {
 					...node.data,
-					text: persistStatus ? upsertHiddenMetadata(node.data.text, "status", runtimeStatus) : node.data.text,
+					text: persistStatus ? setParsedHiddenMetadata(parsed, node.data.text, "status", runtimeStatus) : node.data.text,
 					visibleText: parsed.visibleText,
 					title: parsed.title,
 					priority: parsed.priority,
@@ -1486,25 +1445,40 @@ function isMediumImpactToNecessaryEdge(source: TechTreeNode, target: TechTreeNod
 function parseNodeText(text: string): ParsedNodeText {
 	const lines = normalizeLineEndings(text).split("\n");
 	const metadata = new Map<string, string>();
+	const visibleLines: string[] = [];
+	const checkboxStates: boolean[] = [];
+	let firstContentLine: string | undefined;
 
 	for (const line of lines) {
 		const match = parseMetadataLine(line);
+		const isHiddenMetadata = Boolean(match && HIDDEN_METADATA_KEYS.has(match.key));
 
-		if (match && HIDDEN_METADATA_KEYS.has(match.key)) {
+		if (match && isHiddenMetadata) {
 			metadata.set(match.key, match.value);
+		}
+
+		if (!isHiddenMetadata) {
+			visibleLines.push(line);
+
+			if (!firstContentLine && line.trim()) {
+				firstContentLine = line;
+			}
+		}
+
+		const checkboxMatch = /^\s*[-*]\s+\[([ xX])\]/.exec(line);
+
+		if (checkboxMatch?.[1]) {
+			checkboxStates.push(checkboxMatch[1].toLowerCase() === "x");
 		}
 	}
 
-	const firstContentLine = lines.find((line) => {
-		const trimmed = line.trim();
-		return trimmed && !isHiddenMetadataLine(line);
-	});
+	const normalizedVisibleLines = normalizeVisibleLines(visibleLines.join("\n"));
+	const visibleText = getVisibleTextFromLines(visibleLines);
 	const priority = normalizePriority(metadata.get("priority"));
 	const priorityOrder = normalizePriorityOrder(metadata.get(PRIORITY_ORDER_METADATA_KEY));
 	const rawStatus = metadata.get("status")?.trim();
 	const statusKind = normalizeStatusKind(rawStatus);
 	const questViewMode = normalizeBooleanMetadata(metadata.get(QUEST_VIEW_METADATA_KEY));
-	const checkboxStates = getCheckboxStates(text);
 	const completed = rawStatus
 		? statusKind === "done"
 		: checkboxStates.length > 0 && checkboxStates.every(Boolean);
@@ -1516,43 +1490,37 @@ function parseNodeText(text: string): ParsedNodeText {
 
 	return {
 		title: firstContentLine?.replace(/^#+\s*/, "").trim() || "Untitled note",
-		visibleText: getVisibleNodeText(text),
+		visibleText,
 		priority,
 		priorityOrder,
 		connections: parseConnectionMetadata(metadata.get(CONNECTIONS_METADATA_KEY)),
+		hiddenMetadata: metadata,
 		status: rawStatus || (completed ? "done" : "open"),
 		statusKind: completed ? "done" : statusKind,
 		completed,
 		questViewMode,
 		boardPath: normalizeBoardPath(metadata.get(BOARD_PATH_METADATA_KEY)),
-		partial
+		partial,
+		visibleLines: normalizedVisibleLines
 	};
-}
-
-function getCheckboxStates(text: string): boolean[] {
-	return text
-		.split(/\r?\n/)
-		.map((line) => /^\s*[-*]\s+\[([ xX])\]/.exec(line)?.[1])
-		.filter((value): value is string => typeof value === "string")
-		.map((value) => value.toLowerCase() === "x");
 }
 
 function normalizePriority(value: string | undefined): TechTreePriority {
 	const normalized = value?.toLowerCase().trim().replace(/[-_]+/g, " ");
 
-	if (normalized === "critical" || normalized === "necessary") {
+	if (normalized === "necessary") {
 		return "necessary";
 	}
 
-	if (normalized === "goal" || normalized === "outcome") {
+	if (normalized === "goal") {
 		return "goal";
 	}
 
-	if (normalized === "high" || normalized === "normal" || normalized === "medium" || normalized === "medium impact") {
+	if (normalized === "medium impact") {
 		return "medium impact";
 	}
 
-	if (normalized === "low" || normalized === "quest") {
+	if (normalized === "quest") {
 		return "quest";
 	}
 
@@ -1763,11 +1731,8 @@ function mergeCanvasEdge(sourceEdge: CanvasEdge | undefined, edge: CanvasEdge): 
 	};
 }
 
-function getVisibleNodeText(text: string): string {
-	const visibleLines = normalizeLineEndings(text)
-		.split("\n")
-		.filter((line) => !isHiddenMetadataLine(line));
-
+function getVisibleTextFromLines(lines: string[]): string {
+	const visibleLines = [...lines];
 	while (visibleLines.length > 0 && !visibleLines[0]?.trim()) {
 		visibleLines.shift();
 	}
@@ -1781,6 +1746,22 @@ function upsertHiddenMetadata(text: string, key: string, value: string): string 
 	metadata.set(key, value);
 
 	return formatNodeText(metadata, getVisibleNodeLines(text));
+}
+
+function setParsedHiddenMetadata(parsed: ParsedNodeText, text: string, key: string, value: string | null): string {
+	if ((parsed.hiddenMetadata.get(key) ?? null) === value) {
+		return text;
+	}
+
+	const metadata = new Map(parsed.hiddenMetadata);
+
+	if (value === null) {
+		metadata.delete(key);
+	} else {
+		metadata.set(key, value);
+	}
+
+	return formatNodeText(metadata, parsed.visibleLines);
 }
 
 function removeHiddenMetadata(text: string, key: string): string {
@@ -1870,10 +1851,6 @@ function parseMetadataLine(line: string): { key: string; value: string } | null 
 	};
 }
 
-function isDoneStatus(status: string): boolean {
-	return status === "done" || status === "complete" || status === "completed";
-}
-
 function normalizeStatusKind(status: string | undefined): TechTreeStatusKind {
 	const normalized = status?.toLowerCase().trim();
 
@@ -1881,15 +1858,15 @@ function normalizeStatusKind(status: string | undefined): TechTreeStatusKind {
 		return "open";
 	}
 
-	if (isDoneStatus(normalized)) {
+	if (normalized === "done") {
 		return "done";
 	}
 
-	if (["in progress", "in-progress", "partial", "started", "doing"].includes(normalized)) {
+	if (normalized === "in-progress") {
 		return "in-progress";
 	}
 
-	if (["blocked", "locked", "missing", "stuck"].some((value) => normalized.includes(value))) {
+	if (normalized === "blocked" || normalized === "locked") {
 		return "blocked";
 	}
 
@@ -1899,7 +1876,7 @@ function normalizeStatusKind(status: string | undefined): TechTreeStatusKind {
 function normalizeBooleanMetadata(value: string | undefined): boolean {
 	const normalized = value?.toLowerCase().trim();
 
-	return normalized === "true" || normalized === "on" || normalized === "yes" || normalized === "quest";
+	return normalized === "on";
 }
 
 function normalizeBoardPath(value: string | undefined): string | null {

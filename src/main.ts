@@ -2,8 +2,11 @@ import {
 	addIcon,
 	Notice,
 	Plugin,
+	PluginSettingTab,
+	Setting,
 	TFile,
 	TFolder,
+	type App,
 	type Menu,
 	type WorkspaceLeaf
 } from "obsidian";
@@ -15,6 +18,13 @@ import {
 } from "./TechTreeManager";
 import { TechTreeBoardSuggestModal, TechTreeItemView } from "./TechTreeItemView";
 import { CANVAS_VIEW_TYPE, TECH_TREE_ICON, TECH_TREE_VIEW_TYPE } from "./constants";
+import {
+	DEFAULT_TECH_TREE_SETTINGS,
+	TECH_TREE_COLOR_SERIES_OPTIONS,
+	isTechTreeColorSeries,
+	normalizeTechTreeSettings,
+	type TechTreeSettings
+} from "./settings";
 import bonsaiRibbonIcon from "./assets/bonsai_ribbon.svg";
 
 type TechTreeBoardMode = "tech-tree" | "canvas";
@@ -22,10 +32,14 @@ type TechTreeBoardMode = "tech-tree" | "canvas";
 export default class TechTreePlugin extends Plugin {
 	private manager!: TechTreeManager;
 	private boardModes = new Map<string, TechTreeBoardMode>();
+	private pluginSettings: TechTreeSettings = { ...DEFAULT_TECH_TREE_SETTINGS };
+	private settingsListeners = new Set<() => void>();
 
 	async onload() {
-		this.manager = TechTreeManager.getInstance(this.app, this);
+		await this.loadSettings();
+		this.manager = TechTreeManager.getInstance(this.app);
 		addIcon(TECH_TREE_ICON, bonsaiRibbonIcon);
+		this.addSettingTab(new TechTreeSettingsTab(this.app, this));
 
 		this.registerView(
 			TECH_TREE_VIEW_TYPE,
@@ -103,7 +117,29 @@ export default class TechTreePlugin extends Plugin {
 
 	onunload() {
 		this.boardModes.clear();
+		this.settingsListeners.clear();
 		void this.manager.dispose();
+	}
+
+	getSettings(): TechTreeSettings {
+		return this.pluginSettings;
+	}
+
+	onSettingsChange(listener: () => void): () => void {
+		this.settingsListeners.add(listener);
+
+		return () => {
+			this.settingsListeners.delete(listener);
+		};
+	}
+
+	async updateSettings(settings: Partial<TechTreeSettings>): Promise<void> {
+		this.pluginSettings = normalizeTechTreeSettings({
+			...this.pluginSettings,
+			...settings
+		});
+		await this.saveSettings();
+		this.notifySettingsChanged();
 	}
 
 	async createBoardAndOpen(folder?: TFolder, leaf?: WorkspaceLeaf | null, name = DEFAULT_BOARD_NAME) {
@@ -219,11 +255,11 @@ export default class TechTreePlugin extends Plugin {
 			return;
 		}
 
-		if (!await this.manager.isTechTreeCanvasFile(file)) {
+		if (activeLeaf?.view.getViewType() === TECH_TREE_VIEW_TYPE) {
 			return;
 		}
 
-		if (activeLeaf?.view.getViewType() === TECH_TREE_VIEW_TYPE) {
+		if (!await this.manager.isTechTreeCanvasFile(file)) {
 			return;
 		}
 
@@ -237,6 +273,60 @@ export default class TechTreePlugin extends Plugin {
 	private setBoardMode(leaf: WorkspaceLeaf, path: string, mode: TechTreeBoardMode): void {
 		this.boardModes.set(getBoardModeKey(leaf, path), mode);
 	}
+
+	private async loadSettings(): Promise<void> {
+		const data = getPluginDataRecord(await this.loadData());
+		this.pluginSettings = normalizeTechTreeSettings(data.settings);
+	}
+
+	private async saveSettings(): Promise<void> {
+		const data = getPluginDataRecord(await this.loadData());
+		await this.saveData({
+			...data,
+			settings: this.pluginSettings
+		});
+	}
+
+	private notifySettingsChanged(): void {
+		for (const listener of this.settingsListeners) {
+			listener();
+		}
+	}
+}
+
+class TechTreeSettingsTab extends PluginSettingTab {
+	constructor(
+		app: App,
+		private readonly plugin: TechTreePlugin
+	) {
+		super(app, plugin);
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName("Color series")
+			.setDesc("Sets the completion color series.")
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(TECH_TREE_COLOR_SERIES_OPTIONS)) {
+					dropdown.addOption(value, label);
+				}
+
+				dropdown
+					.setValue(this.plugin.getSettings().colorSeries)
+					.onChange(async (value) => {
+						if (!isTechTreeColorSeries(value)) {
+							return;
+						}
+
+						await this.plugin.updateSettings({
+							colorSeries: value
+						});
+					});
+			});
+	}
 }
 
 function getBoardModeKey(leaf: WorkspaceLeaf, path: string): string {
@@ -245,4 +335,10 @@ function getBoardModeKey(leaf: WorkspaceLeaf, path: string): string {
 
 function getLeafId(leaf: WorkspaceLeaf): string | undefined {
 	return (leaf as WorkspaceLeaf & { id?: string }).id;
+}
+
+function getPluginDataRecord(data: unknown): Record<string, unknown> {
+	return typeof data === "object" && data !== null && !Array.isArray(data)
+		? data as Record<string, unknown>
+		: {};
 }

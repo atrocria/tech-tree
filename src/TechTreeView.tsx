@@ -37,11 +37,13 @@ import { Notice } from "obsidian";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import bonsaiImageUrl from "./assets/bonsai.png";
 import { TechTreeManager, applyNodeState, createNode, updateGoalQuestViewMode, updateNodeBoardPath, updateNodeCompletionStatus, updateNodePriority, updateNodePriorityOrder, updateNodeVisibleText } from "./TechTreeManager";
+import { DEFAULT_TECH_TREE_SETTINGS, type TechTreeColorSeries } from "./settings";
 import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeStickyNote } from "./types";
 
 type TechTreeAppProps = {
 	boardPath: string;
 	manager: TechTreeManager;
+	colorSeries: TechTreeColorSeries;
 	onOpenBoard?: (path: string) => void;
 };
 
@@ -111,9 +113,97 @@ type TechTreeEdgeData = Record<string, unknown> & {
 	isQuestView?: boolean;
 	isStraight?: boolean;
 	isPriorityPath?: boolean;
+	useCompletionGradient?: boolean;
 	showToolbar?: boolean;
 	onDelete?: (edgeId: string) => void;
 	onReverse?: (edgeId: string) => void;
+};
+
+type CompletionGradientStop = {
+	offset: string;
+	color: string;
+};
+
+type CompletionGradientDefinition = {
+	treeGradient: string;
+	border: {
+		x1: string;
+		y1: string;
+		x2: string;
+		y2: string;
+		stops: CompletionGradientStop[];
+	};
+};
+
+const COMPLETION_GRADIENTS: Record<TechTreeColorSeries, CompletionGradientDefinition> = {
+	winter: {
+		treeGradient: "linear-gradient(180deg, hsla(186, 33%, 94%, 1) 0%, hsla(216, 58%, 58%, 1) 100%)",
+		border: {
+			x1: "0",
+			y1: "0",
+			x2: "1",
+			y2: "1",
+			stops: [
+				{ offset: "0%", color: "hsla(186, 33%, 94%, 1)" },
+				{ offset: "100%", color: "hsla(216, 58%, 58%, 1)" }
+			]
+		}
+	},
+	summer: {
+		treeGradient: "linear-gradient(360deg, hsla(165, 89%, 31%, 1) 19%, hsla(161, 46%, 49%, 1) 66%)",
+		border: {
+			x1: "0",
+			y1: "1",
+			x2: "0",
+			y2: "0",
+			stops: [
+				{ offset: "19%", color: "hsla(165, 89%, 31%, 1)" },
+				{ offset: "66%", color: "hsla(161, 46%, 49%, 1)" }
+			]
+		}
+	},
+	autumn: {
+		treeGradient: "radial-gradient(circle at 78% 80%, #355b3bcc 0%, transparent 32%), radial-gradient(circle at 52% 92%, #ffb41f66 0%, transparent 30%), radial-gradient(circle at 35% 78%, #ff8a2a66 0%, transparent 36%), radial-gradient(circle at 18% 86%, #d7373760 0%, transparent 38%), radial-gradient(circle at 70% 20%, #8b5a3c40 0%, transparent 45%), linear-gradient(180deg, #7a4938 0%, #6b4034 18%, #5a342e 45%, #492926 72%, #2f1d20 100%)",
+		border: {
+			x1: "0",
+			y1: "0",
+			x2: "0",
+			y2: "1",
+			stops: [
+				{ offset: "0%", color: "#7a4938" },
+				{ offset: "18%", color: "#6b4034" },
+				{ offset: "45%", color: "#5a342e" },
+				{ offset: "72%", color: "#492926" },
+				{ offset: "100%", color: "#2f1d20" }
+			]
+		}
+	},
+	spring: {
+		treeGradient: "linear-gradient(180deg, hsla(10, 82%, 65%, 1) 0%, hsla(290, 79%, 13%, 1) 100%)",
+		border: {
+			x1: "0",
+			y1: "0",
+			x2: "0",
+			y2: "1",
+			stops: [
+				{ offset: "0%", color: "hsla(10, 82%, 65%, 1)" },
+				{ offset: "100%", color: "hsla(290, 79%, 13%, 1)" }
+			]
+		}
+	},
+	night: {
+		treeGradient: "linear-gradient(180deg, hsla(252, 40%, 29%, 1) 0%, hsla(270, 77%, 71%, 1) 100%)",
+		border: {
+			x1: "0",
+			y1: "0",
+			x2: "0",
+			y2: "1",
+			stops: [
+				{ offset: "0%", color: "hsla(252, 40%, 29%, 1)" },
+				{ offset: "100%", color: "hsla(270, 77%, 71%, 1)" }
+			]
+		}
+	}
 };
 
 type QuestViewValidation = {
@@ -215,6 +305,7 @@ type PriorityPathContext = {
 	directNodeIds: Set<string>;
 	priorityNodeOrders: Map<string, number>;
 	preferredNextNodeByParentId: Map<string, string>;
+	branchRankCache: Map<string, PriorityBranchRank>;
 	goalId: string;
 };
 
@@ -235,13 +326,15 @@ type HorizontalMirrorBounds = {
 	rightEdge: number;
 };
 
+const EDGE_BODY_INTERACTION_WIDTH = 18;
+const ARROW_HEAD_RECONNECT_RADIUS = 64;
 const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
 	type: "techTreeEdge",
 	markerEnd: {
 		type: MarkerType.ArrowClosed
 	},
 	className: "tech-tree-edge",
-	interactionWidth: 28
+	interactionWidth: EDGE_BODY_INTERACTION_WIDTH
 };
 
 const HANDLE_POSITIONS = [
@@ -263,8 +356,10 @@ const EDGE_MARKER_COLORS = {
 	quest: "#60a5fa",
 	progress: "#f97316",
 	muted: "#7c8490",
-	done: "#22c55e"
+	done: "#74d99f"
 } as const;
+const COMPLETION_EDGE_GRADIENT_ID = "tech-tree-completion-edge-gradient";
+const COMPLETION_EDGE_MARKER_ID = "tech-tree-completion-arrowhead";
 
 // Change edge scenario class names here, then tune the matching body colors in styles.css.
 const EDGE_CLASSES = {
@@ -298,16 +393,16 @@ const EDGE_VISUAL_STYLES: Partial<Record<string, EdgeVisualStyle>> = {
 	[EDGE_CLASSES.necessaryComplete]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 6000 },
 	[EDGE_CLASSES.necessaryPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 5000 },
 	[EDGE_CLASSES.necessaryChain]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 4000 },
-	[EDGE_CLASSES.questLockedPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
-	[EDGE_CLASSES.questActivePath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20, isStraight: true },
-	[EDGE_CLASSES.questDoneToDone]: { markerColor: EDGE_MARKER_COLORS.quest, zIndex: 20, isStraight: true },
-	[EDGE_CLASSES.questDoneToUndone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
-	[EDGE_CLASSES.questGoalPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questLockedPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20 },
+	[EDGE_CLASSES.questActivePath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20 },
+	[EDGE_CLASSES.questDoneToDone]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 20 },
+	[EDGE_CLASSES.questDoneToUndone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20 },
+	[EDGE_CLASSES.questGoalPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20 },
 	[EDGE_CLASSES.questMediumDoneToDone]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 20 },
 	[EDGE_CLASSES.questMediumDoneToUndone]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20 },
 	[EDGE_CLASSES.questMediumUndoneToDone]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 20 },
 	[EDGE_CLASSES.questMediumPath]: { markerColor: EDGE_MARKER_COLORS.progress, zIndex: 20 },
-	[EDGE_CLASSES.questPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20, isStraight: true },
+	[EDGE_CLASSES.questPath]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 20 },
 	[EDGE_CLASSES.complete]: { markerColor: EDGE_MARKER_COLORS.done, zIndex: 10 },
 	[EDGE_CLASSES.inProgress]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 10 },
 	[EDGE_CLASSES.doneToUndone]: { markerColor: EDGE_MARKER_COLORS.muted, zIndex: 10 },
@@ -353,7 +448,6 @@ const ZOOM_SLIDER_MIN_HEIGHT = 132;
 const ZOOM_SLIDER_MAX_HEIGHT = 340;
 const ZOOM_SLIDER_TRACK_PADDING = 56;
 const CONNECTION_RADIUS = 64;
-const RECONNECT_RADIUS = 44;
 const RIGHT_DRAG_SELECTION_BUTTON = 2;
 const RIGHT_DRAG_SELECTION_BUTTONS_MASK = 2;
 const RIGHT_DRAG_SELECTION_THRESHOLD = 6;
@@ -372,12 +466,13 @@ const DEFAULT_STICKY_NOTE: TechTreeStickyNote = {
 const MIN_PRIORITY_ORDER = 0;
 const MAX_PRIORITY_ORDER = 10;
 
-export function TechTreeApp({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
+export function TechTreeApp({ boardPath, manager, colorSeries, onOpenBoard }: TechTreeAppProps) {
 	return (
 		<ReactFlowProvider>
 			<TechTreeCanvas
 				boardPath={boardPath}
 				manager={manager}
+				colorSeries={colorSeries}
 				onOpenBoard={onOpenBoard}
 			/>
 		</ReactFlowProvider>
@@ -386,16 +481,19 @@ export function TechTreeApp({ boardPath, manager, onOpenBoard }: TechTreeAppProp
 
 export function TechTreeBoardPicker({ boards, onCreateBoard, onOpenBoard }: TechTreeBoardPickerProps) {
 	const [query, setQuery] = useState("");
-	const trimmedQuery = query.trim();
-	const lowerQuery = trimmedQuery.toLowerCase();
-	const matchingBoards = boards.filter((board) => {
+	const trimmedQuery = useMemo(() => query.trim(), [query]);
+	const lowerQuery = useMemo(() => trimmedQuery.toLowerCase(), [trimmedQuery]);
+	const matchingBoards = useMemo(() => boards.filter((board) => {
 		if (!lowerQuery) {
 			return true;
 		}
 
 		return `${board.name} ${board.path}`.toLowerCase().includes(lowerQuery);
-	});
-	const hasExactBoardName = boards.some((board) => board.name.toLowerCase() === lowerQuery);
+	}), [boards, lowerQuery]);
+	const hasExactBoardName = useMemo(
+		() => boards.some((board) => board.name.toLowerCase() === lowerQuery),
+		[boards, lowerQuery]
+	);
 	const canCreateNamedBoard = Boolean(trimmedQuery && !hasExactBoardName);
 
 	return (
@@ -446,15 +544,75 @@ export function TechTreeBoardPicker({ boards, onCreateBoard, onOpenBoard }: Tech
 	);
 }
 
-const TechTreeOriginBackground = React.memo(function TechTreeOriginBackground() {
+function getCompletionGradientDefinition(colorSeries: TechTreeColorSeries | undefined): CompletionGradientDefinition {
+	return COMPLETION_GRADIENTS[colorSeries ?? DEFAULT_TECH_TREE_SETTINGS.colorSeries];
+}
+
+function getCompletionGradientStyle(definition: CompletionGradientDefinition): React.CSSProperties {
+	const firstStop = definition.border.stops[0];
+	const lastStop = definition.border.stops[definition.border.stops.length - 1] ?? firstStop;
+
+	return {
+		"--tech-tree-goal-gradient-start": firstStop?.color ?? "hsla(186, 33%, 94%, 1)",
+		"--tech-tree-goal-gradient-end": lastStop?.color ?? "hsla(216, 58%, 58%, 1)",
+		"--tech-tree-completion-gradient": definition.treeGradient,
+		"--tech-tree-goal-tree-gradient": definition.treeGradient
+	} as React.CSSProperties;
+}
+
+const TechTreeOriginBackground = React.memo(function TechTreeOriginBackground({ isComplete }: { isComplete: boolean }) {
 	return (
 		<ViewportPortal>
-			<div className="tech-tree-origin-background" aria-hidden="true">
+			<div
+				className={["tech-tree-origin-background", isComplete ? "is-complete" : ""].filter(Boolean).join(" ")}
+				aria-hidden="true"
+				style={{ "--tech-tree-origin-image": `url(${bonsaiImageUrl})` } as React.CSSProperties}
+			>
 				<img src={bonsaiImageUrl} alt="" draggable={false} />
 			</div>
 		</ViewportPortal>
 	);
 });
+
+function CompletionSvgDefinitions({ definition }: { definition: CompletionGradientDefinition }) {
+	return (
+		<svg className="tech-tree-svg-defs" aria-hidden="true" focusable="false">
+			<defs>
+				<linearGradient
+					id={COMPLETION_EDGE_GRADIENT_ID}
+					x1={definition.border.x1}
+					y1={definition.border.y1}
+					x2={definition.border.x2}
+					y2={definition.border.y2}
+				>
+					{definition.border.stops.map((stop) => (
+						<stop key={`${stop.offset}-${stop.color}`} offset={stop.offset} stopColor={stop.color} />
+					))}
+				</linearGradient>
+				<marker
+					id={COMPLETION_EDGE_MARKER_ID}
+					className="react-flow__arrowhead"
+					markerWidth="12.5"
+					markerHeight="12.5"
+					viewBox="-10 -10 20 20"
+					markerUnits="strokeWidth"
+					orient="auto-start-reverse"
+					refX="0"
+					refY="0"
+				>
+					<polyline
+						className="arrowclosed"
+						points="-5,-4 0,0 -5,4 -5,-4"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						stroke={`url(#${COMPLETION_EDGE_GRADIENT_ID})`}
+						fill={`url(#${COMPLETION_EDGE_GRADIENT_ID})`}
+					/>
+				</marker>
+			</defs>
+		</svg>
+	);
+}
 
 function TechTreeViewportControls({ isStickyNoteOpen, hasStickyNoteContent, onToggleStickyNote }: TechTreeViewportControlsProps) {
 	const reactFlow = useReactFlow<TechTreeNode, Edge>();
@@ -774,20 +932,25 @@ function TechTreeStickyNote({
 	);
 }
 
-function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
+function TechTreeCanvas({ boardPath, manager, colorSeries, onOpenBoard }: TechTreeAppProps) {
 	const reactFlow = useReactFlow<TechTreeNode, Edge>();
 	const shellRef = useRef<HTMLDivElement | null>(null);
 	const rightDragSelectionRef = useRef<RightDragSelectionState | null>(null);
 	const suppressContextMenuRef = useRef(false);
+	const contextMenuSuppressTimerRef = useRef<number | null>(null);
 	const lastPointerPositionRef = useRef<ClientPosition | null>(null);
 	const historyRef = useRef<BoardHistory>({ undos: [], redos: [] });
 	const boardRef = useRef<TechTreeBoard | null>(null);
 	const activeBoardRef = useRef<TechTreeBoard | null>(null);
+	const reconnectingEdgeConnectionKeyRef = useRef<string | null>(null);
+	const persistSequenceRef = useRef(0);
 	const transientBoardDirtyRef = useRef(false);
 	const pendingTransientBoardRef = useRef<TechTreeBoard | null>(null);
 	const transientBoardFrameRef = useRef<number | null>(null);
 	const hoveredEdgeIdRef = useRef<string | null>(null);
 	const slicedEdgeIdsRef = useRef<Set<string>>(new Set());
+	const stickyNoteDraftPositionRef = useRef<ClientPosition | null>(null);
+	const stickyNoteDraftFrameRef = useRef<number | null>(null);
 	const flowNodeCacheRef = useRef<Map<string, TechTreeNode>>(new Map());
 	const flowEdgeCacheRef = useRef<Map<string, Edge>>(new Map());
 	const stickyNoteSaveRef = useRef<{ timer: number | null; path: string; note: TechTreeStickyNote | null }>({
@@ -989,12 +1152,24 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 		return () => {
 			clearTransientBoardUpdate();
 			transientBoardDirtyRef.current = false;
+
+			if (stickyNoteDraftFrameRef.current !== null) {
+				window.cancelAnimationFrame(stickyNoteDraftFrameRef.current);
+				stickyNoteDraftFrameRef.current = null;
+			}
+
+			if (contextMenuSuppressTimerRef.current !== null) {
+				window.clearTimeout(contextMenuSuppressTimerRef.current);
+				contextMenuSuppressTimerRef.current = null;
+			}
 		};
 	}, [clearTransientBoardUpdate]);
 
 	const persistBoard = useCallback(
 		async (nextBoard: TechTreeBoard, options: PersistBoardOptions = {}) => {
 			const currentBoard = boardRef.current;
+			const persistSequence = persistSequenceRef.current + 1;
+			persistSequenceRef.current = persistSequence;
 
 			if (options.recordHistory !== false && currentBoard) {
 				const historyEntry = options.historyEntry ?? createBoardHistoryEntry(currentBoard, nextBoard);
@@ -1008,11 +1183,17 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 
 			try {
 				const savedBoard = await manager.updateBoard(boardPath, nextBoard);
-				applyBoardState(savedBoard);
-				setError(null);
+
+				if (persistSequence === persistSequenceRef.current) {
+					applyBoardState(savedBoard);
+					setError(null);
+				}
 			} catch (saveError) {
 				console.error("Failed to update tech tree board", saveError);
-				setError(saveError instanceof Error ? saveError.message : "Unable to update tech tree board.");
+
+				if (persistSequence === persistSequenceRef.current) {
+					setError(saveError instanceof Error ? saveError.message : "Unable to update tech tree board.");
+				}
 			}
 		},
 		[applyBoardState, boardPath, manager]
@@ -1125,6 +1306,11 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 		[board, isFocusMode, isQuestView, priorityPathState, questMirrorBounds]
 	);
 	activeBoardRef.current = activeBoard;
+
+	const isBoardComplete = useMemo(
+		() => Boolean(board && board.nodes.length > 0 && board.nodes.every((node) => node.data.completed)),
+		[board]
+	);
 
 	useEffect(() => {
 		if (isQuestView && !questViewValidation.canEnter) {
@@ -1402,16 +1588,17 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 					deletable: canEditStructure && !isGoal,
 					focusable: canMoveNode,
 					data: {
-						...node.data,
-						onTextChange: handleTextChange,
-						onCompletedChange: handleCompletedChange,
-						onPriorityChange: handlePriorityChange,
-						onPriorityOrderChange: handlePriorityOrderChange,
-						onOpenBoard: handleOpenNodeBoard,
-						hasOtherGoalNode,
-						isQuestView
-					}
-				};
+					...node.data,
+					onTextChange: handleTextChange,
+					onCompletedChange: handleCompletedChange,
+					onPriorityChange: handlePriorityChange,
+					onPriorityOrderChange: handlePriorityOrderChange,
+					onOpenBoard: handleOpenNodeBoard,
+					hasOtherGoalNode,
+					isPriorityPathNode: priorityPathState.hasActivePath && priorityPathState.nodeIds.has(node.id),
+					isQuestView
+				}
+			};
 
 				nextNodeIds.add(nextNode.id);
 				return getCachedFlowNode(flowNodeCacheRef.current, nextNode);
@@ -1426,7 +1613,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			pruneCache(flowNodeCacheRef.current, nextNodeIds);
 			return nextNodes;
 		},
-		[activeBoard, handleCompletedChange, handleOpenNodeBoard, handlePriorityChange, handlePriorityOrderChange, handleTextChange, isPlacingNode, isQuestView, placementFlowPosition, placementNodeText]
+		[activeBoard, handleCompletedChange, handleOpenNodeBoard, handlePriorityChange, handlePriorityOrderChange, handleTextChange, isPlacingNode, isQuestView, placementFlowPosition, placementNodeText, priorityPathState]
 	);
 
 	const flowNodesById = useMemo(
@@ -1456,6 +1643,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 					.filter(Boolean)
 					.join(" ");
 				const edgeVisualStyle = getEdgeVisualStyle(edgeClassName);
+				const useCompletionGradient = isBoardComplete && isCompletionEdgeClassName(edgeClassName);
 				const nextEdge: Edge = {
 					...edge,
 					type: "techTreeEdge",
@@ -1465,15 +1653,16 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 						type: MarkerType.ArrowClosed,
 						color: edgeVisualStyle.markerColor
 					},
-					interactionWidth: edge.interactionWidth ?? 28,
+					interactionWidth: EDGE_BODY_INTERACTION_WIDTH,
 					selectable: true,
 					deletable: !isQuestView,
-					reconnectable: !isQuestView,
+					reconnectable: isQuestView ? false : "target",
 					data: {
 						...edge.data,
 						isQuestView,
 						isStraight: edgeVisualStyle.isStraight,
 						isPriorityPath,
+						useCompletionGradient,
 						showToolbar: showSelectedEdgeToolbar,
 						onDelete: handleDeleteEdge,
 						onReverse: handleReverseEdge
@@ -1489,7 +1678,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			pruneCache(flowEdgeCacheRef.current, nextEdgeIds);
 			return nextEdges;
 		},
-		[activeBoard?.edges, activeBoard?.nodes, flowNodesById, handleDeleteEdge, handleReverseEdge, isQuestView, priorityPathState]
+		[activeBoard?.edges, activeBoard?.nodes, flowNodesById, handleDeleteEdge, handleReverseEdge, isBoardComplete, isQuestView, priorityPathState]
 	);
 
 	const flowConnectionKeys = useMemo(
@@ -1570,7 +1759,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			}
 
 			if (!shouldRecordHistory) {
-				updateBoardLocal(nextBoard);
+				updateBoardLocal(nextBoard, { preservePriorityPath: true });
 				return;
 			}
 
@@ -1601,7 +1790,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			};
 
 			if (!shouldRecordHistory) {
-				updateBoardLocal(nextBoard);
+				updateBoardLocal(nextBoard, { preservePriorityPath: true });
 				return;
 			}
 
@@ -1720,6 +1909,10 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 				return;
 			}
 
+			if (isSameConnection(persistedOldEdge, normalizedEdge)) {
+				return;
+			}
+
 			const normalizedConnection: Connection = {
 				source: normalizedEdge.source,
 				target: normalizedEdge.target,
@@ -1744,6 +1937,8 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 
 	const handleReconnectEnd = useCallback(
 		(_event: MouseEvent | TouchEvent, edge: Edge, _handleType: HandleType, connectionState: FinalConnectionState) => {
+			reconnectingEdgeConnectionKeyRef.current = null;
+
 			if (!board || isQuestView || connectionState.isValid === true) {
 				return;
 			}
@@ -1756,20 +1951,33 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 		[board, isQuestView, persistBoard]
 	);
 
-	const handleReconnectStart = useCallback(() => {
+	const handleReconnectStart = useCallback((_event: React.MouseEvent<Element, MouseEvent>, edge: { id: string }) => {
+		const reconnectingEdge = boardRef.current?.edges.find((candidate) => candidate.id === edge.id);
+		reconnectingEdgeConnectionKeyRef.current = reconnectingEdge ? getConnectionKey(reconnectingEdge) : null;
 		setPaneMenu(null);
 		setNodeMenu(null);
 	}, []);
 
 	const isValidConnection = useCallback<IsValidConnection>(
-		(connection) => Boolean(
-			!isQuestView
-			&& connection.source
-			&& connection.target
-			&& connection.source !== connection.target
-			&& isAllowedConnectionForNodeMap(flowNodesById, connection)
-			&& !flowConnectionKeys.has(getConnectionKey(connection))
-		),
+		(connection) => {
+			if (
+				isQuestView
+				|| !connection.source
+				|| !connection.target
+				|| connection.source === connection.target
+				|| !isAllowedConnectionForNodeMap(flowNodesById, connection)
+			) {
+				return false;
+			}
+
+			const connectionKey = getConnectionKey(connection);
+
+			if (reconnectingEdgeConnectionKeyRef.current === connectionKey) {
+				return true;
+			}
+
+			return !flowConnectionKeys.has(connectionKey);
+		},
 		[flowConnectionKeys, flowNodesById, isQuestView]
 	);
 
@@ -1803,7 +2011,12 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			lastPointerPositionRef.current = clientPosition;
 
 			if (isPlacingNode) {
-				setPlacementFlowPosition(getPlacementFlowPosition(clientPosition, reactFlow));
+				const nextPosition = getPlacementFlowPosition(clientPosition, reactFlow);
+				setPlacementFlowPosition((currentPosition) => (
+					currentPosition?.x === nextPosition.x && currentPosition.y === nextPosition.y
+						? currentPosition
+						: nextPosition
+				));
 			}
 		},
 		[isPlacingNode, reactFlow]
@@ -1866,15 +2079,45 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 		});
 	}, [scheduleStickyNoteSave]);
 
-	const handleStickyNotePositionDraft = useCallback((position: ClientPosition) => {
-		setStickyNote((currentNote) => ({
-			...currentNote,
-			x: position.x,
-			y: position.y
-		}));
+	const flushStickyNoteDraftPosition = useCallback(() => {
+		if (stickyNoteDraftFrameRef.current !== null) {
+			window.cancelAnimationFrame(stickyNoteDraftFrameRef.current);
+			stickyNoteDraftFrameRef.current = null;
+		}
+
+		const position = stickyNoteDraftPositionRef.current;
+		stickyNoteDraftPositionRef.current = null;
+
+		if (!position) {
+			return;
+		}
+
+		setStickyNote((currentNote) => (
+			currentNote.x === position.x && currentNote.y === position.y
+				? currentNote
+				: {
+					...currentNote,
+					x: position.x,
+					y: position.y
+				}
+		));
 	}, []);
 
+	const handleStickyNotePositionDraft = useCallback((position: ClientPosition) => {
+		stickyNoteDraftPositionRef.current = position;
+
+		if (stickyNoteDraftFrameRef.current !== null) {
+			return;
+		}
+
+		stickyNoteDraftFrameRef.current = window.requestAnimationFrame(() => {
+			stickyNoteDraftFrameRef.current = null;
+			flushStickyNoteDraftPosition();
+		});
+	}, [flushStickyNoteDraftPosition]);
+
 	const handleStickyNotePositionCommit = useCallback((position: ClientPosition) => {
+		flushStickyNoteDraftPosition();
 		setStickyNote((currentNote) => {
 			const nextNote = {
 				...currentNote,
@@ -1885,7 +2128,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			scheduleStickyNoteSave(nextNote, true);
 			return nextNote;
 		});
-	}, [scheduleStickyNoteSave]);
+	}, [flushStickyNoteDraftPosition, scheduleStickyNoteSave]);
 
 	const toggleNodePlacementMode = useCallback(
 		() => {
@@ -2061,8 +2304,14 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 
 	const suppressContextMenusBriefly = useCallback(() => {
 		suppressContextMenuRef.current = true;
-		window.setTimeout(() => {
+
+		if (contextMenuSuppressTimerRef.current !== null) {
+			window.clearTimeout(contextMenuSuppressTimerRef.current);
+		}
+
+		contextMenuSuppressTimerRef.current = window.setTimeout(() => {
 			suppressContextMenuRef.current = false;
+			contextMenuSuppressTimerRef.current = null;
 		}, CONTEXT_MENU_SUPPRESS_MS);
 	}, []);
 
@@ -2109,7 +2358,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 					...edge,
 					selected: false
 				}))
-			});
+			}, { preservePriorityPath: true });
 		},
 		[board, flowNodes, isQuestView, reactFlow, updateBoardLocal]
 	);
@@ -2320,7 +2569,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			setNodeMenu(null);
 			updateBoardLocal({
 				...selectOnlyEdge(board, clickedEdge.id)
-			});
+			}, { preservePriorityPath: true });
 		},
 		[board, isQuestView, updateBoardLocal]
 	);
@@ -2342,7 +2591,7 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 			setNodeMenu(null);
 			updateBoardLocal({
 				...selectOnlyEdge(board, clickedEdge.id)
-			});
+			}, { preservePriorityPath: true });
 		},
 		[board, isQuestView, shouldSuppressContextMenu, updateBoardLocal]
 	);
@@ -2493,6 +2742,15 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 		[board, handleOpenNodeBoard, isQuestView, manager, nodeMenu, persistBoard]
 	);
 
+	const completionGradientDefinition = useMemo(
+		() => getCompletionGradientDefinition(colorSeries),
+		[colorSeries]
+	);
+	const completionGradientStyle = useMemo(
+		() => getCompletionGradientStyle(completionGradientDefinition),
+		[completionGradientDefinition]
+	);
+
 	if (error) {
 		return <div className="tech-tree-empty">{error}</div>;
 	}
@@ -2513,13 +2771,15 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 
 	return (
 		<div
-			className={["tech-tree-shell", isPlacingNode ? "is-placing-node" : ""].filter(Boolean).join(" ")}
+			className={["tech-tree-shell", isPlacingNode ? "is-placing-node" : "", isBoardComplete ? "is-board-complete" : ""].filter(Boolean).join(" ")}
+			style={completionGradientStyle}
 			ref={shellRef}
 			onPointerDownCapture={handleShellPointerDownCapture}
 			onPointerMoveCapture={handleShellPointerMoveCapture}
 			onPointerUpCapture={handleShellPointerUpCapture}
 			onPointerCancelCapture={handleShellPointerCancelCapture}
 		>
+			{isBoardComplete ? <CompletionSvgDefinitions definition={completionGradientDefinition} /> : null}
 			<div className="tech-tree-mode-toggle nodrag nowheel">
 				{isPlacingNode ? (
 					<div className="tech-tree-placement-cancel-label">
@@ -2565,9 +2825,16 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 				defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
 				connectionLineType={ConnectionLineType.SmoothStep}
 				connectionMode={ConnectionMode.Loose}
+				connectionLineStyle={{
+					stroke: "var(--tech-tree-progress)",
+					strokeWidth: 5,
+					strokeDasharray: "10 14",
+					strokeLinecap: "round",
+					opacity: 1
+				}}
 				connectOnClick={!isQuestView}
 				nodesConnectable={!isQuestView}
-				edgesReconnectable={!isQuestView}
+				edgesReconnectable={false}
 				elevateEdgesOnSelect
 				snapToGrid
 				snapGrid={[20, 20]}
@@ -2597,11 +2864,11 @@ function TechTreeCanvas({ boardPath, manager, onOpenBoard }: TechTreeAppProps) {
 				onPaneContextMenu={handlePaneContextMenu}
 				isValidConnection={isValidConnection}
 				connectionRadius={CONNECTION_RADIUS}
-				reconnectRadius={RECONNECT_RADIUS}
+				reconnectRadius={ARROW_HEAD_RECONNECT_RADIUS}
 				minZoom={MIN_ZOOM}
 				maxZoom={MAX_ZOOM}
 			>
-				<TechTreeOriginBackground />
+				<TechTreeOriginBackground isComplete={isBoardComplete} />
 				<TechTreeViewportControls
 					isStickyNoteOpen={isStickyNoteOpen}
 					hasStickyNoteContent={stickyNote.text.trim().length > 0}
@@ -2687,6 +2954,12 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 	const hasQuestPrerequisite = Boolean(nodeData.hasQuestPrerequisite);
 	const priorityOptions = PRIORITY_OPTIONS.filter((option) => option.value !== "goal" || nodeData.priority === "goal" || !nodeData.hasOtherGoalNode);
 	const priorityOrder = clampPriorityOrder(nodeData.priorityOrder);
+	const showsDottedBorder = !completed
+		&& !isPlacementPreview
+		&& (
+			nodeData.priority === "quest"
+			|| (nodeData.priority === "necessary" && !hasCheckedNeighbor)
+		);
 	const nodeClassName = [
 		"tech-tree-node",
 		`is-status-${nodeData.statusKind}`,
@@ -2695,6 +2968,7 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 		locked ? "is-locked" : "is-unlocked",
 		isPlacementPreview ? "is-placement-preview" : "",
 		completed ? "is-completed" : "",
+		nodeData.isPriorityPathNode ? "is-priority-path-node" : "",
 		boardPath ? "has-board-link" : "",
 		hasCheckedNeighbor ? "has-checked-neighbor" : "",
 		hasQuestPrerequisite ? "has-quest-prerequisite" : ""
@@ -2708,7 +2982,7 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 		}
 
 		const handleWheel = (event: WheelEvent) => {
-			if (!event.ctrlKey) {
+			if (!canScrollElementInWheelDirection(note, event)) {
 				return;
 			}
 
@@ -2727,6 +3001,11 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 
 	return (
 		<div className={nodeClassName} aria-disabled={locked || isPlacementPreview}>
+			{showsDottedBorder ? (
+				<svg className="tech-tree-node__dashed-border" aria-hidden="true" focusable="false">
+					<rect className="tech-tree-node__dashed-border-rect" />
+				</svg>
+			) : null}
 			{boardPath ? (
 				<button
 					type="button"
@@ -2743,14 +3022,16 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 					go to board
 				</button>
 			) : null}
-			<NodeResizer
-				isVisible={selected && canEditNode}
-				minWidth={MIN_NODE_WIDTH}
-				minHeight={MIN_NODE_HEIGHT}
-				color="#a5adba"
-				handleClassName="tech-tree-node__resize-handle"
-				lineClassName="tech-tree-node__resize-line"
-			/>
+			{selected && canEditNode ? (
+				<NodeResizer
+					isVisible
+					minWidth={MIN_NODE_WIDTH}
+					minHeight={MIN_NODE_HEIGHT}
+					color="#a5adba"
+					handleClassName="tech-tree-node__resize-handle"
+					lineClassName="tech-tree-node__resize-line"
+				/>
+			) : null}
 			{HANDLE_POSITIONS.map((handle) => (
 				<Handle
 					key={handle.id}
@@ -2821,7 +3102,7 @@ function TechNodeComponent({ id, data, selected }: NodeProps<TechTreeNode>) {
 			<div className="tech-tree-node__body">
 				<div
 					ref={noteRef}
-					className="tech-tree-note nodrag nowheel"
+					className="tech-tree-note nodrag"
 					contentEditable={canEditNode}
 					suppressContentEditableWarning
 					onBlur={(event) => {
@@ -2946,6 +3227,7 @@ function areTechTreeNodeDataEquivalent(first: TechTreeNode["data"], second: Tech
 		&& first.questViewMode === second.questViewMode
 		&& first.boardPath === second.boardPath
 		&& first.isQuestView === second.isQuestView
+		&& first.isPriorityPathNode === second.isPriorityPathNode
 		&& first.isPlacementPreview === second.isPlacementPreview
 		&& first.hasOtherGoalNode === second.hasOtherGoalNode
 		&& first.onTextChange === second.onTextChange
@@ -2985,6 +3267,7 @@ function areFlowEdgesEquivalent(first: Edge, second: Edge): boolean {
 		&& first.data?.isQuestView === second.data?.isQuestView
 		&& first.data?.isStraight === second.data?.isStraight
 		&& first.data?.isPriorityPath === second.data?.isPriorityPath
+		&& first.data?.useCompletionGradient === second.data?.useCompletionGradient
 		&& first.data?.showToolbar === second.data?.showToolbar
 		&& first.data?.onDelete === second.data?.onDelete
 		&& first.data?.onReverse === second.data?.onReverse;
@@ -3230,6 +3513,7 @@ function getPriorityPathState(board: TechTreeBoard, currentState?: PriorityPathS
 		directNodeIds,
 		priorityNodeOrders: state.priorityNodeOrders,
 		preferredNextNodeByParentId: getPreferredNextNodeByParentId(currentState, nodesById),
+		branchRankCache: new Map(),
 		goalId: goalNode.id
 	};
 	const activeLink = getBestActivePriorityLink(directLinks, context);
@@ -3646,14 +3930,25 @@ function getPriorityChildLinks(nodeId: string, context: PriorityPathContext, see
 }
 
 function getPriorityBranchRank(nodeId: string, context: PriorityPathContext, seenNodeIds: Set<string>): PriorityBranchRank {
+	const cacheKey = getPriorityBranchRankCacheKey(nodeId, seenNodeIds);
+	const cachedRank = context.branchRankCache.get(cacheKey);
+
+	if (cachedRank) {
+		return cachedRank;
+	}
+
 	const node = context.nodesById.get(nodeId);
 
 	if (!node || seenNodeIds.has(nodeId)) {
-		return { priorityOrder: null, progressDepth: null, closureDepth: null, longestLength: 0, isComplete: true };
+		const rank = { priorityOrder: null, progressDepth: null, closureDepth: null, longestLength: 0, isComplete: true };
+		context.branchRankCache.set(cacheKey, rank);
+		return rank;
 	}
 
 	if (node.data.completed) {
-		return { priorityOrder: null, progressDepth: null, closureDepth: null, longestLength: 0, isComplete: true };
+		const rank = { priorityOrder: null, progressDepth: null, closureDepth: null, longestLength: 0, isComplete: true };
+		context.branchRankCache.set(cacheKey, rank);
+		return rank;
 	}
 
 	const nextSeenNodeIds = new Set(seenNodeIds);
@@ -3688,13 +3983,24 @@ function getPriorityBranchRank(nodeId: string, context: PriorityPathContext, see
 		}
 	}
 
-	return {
+	const rank = {
 		priorityOrder,
 		progressDepth,
 		closureDepth: hasChild && !hasIncompleteChild ? 0 : closureDepth,
 		longestLength: 1 + longestChildLength,
 		isComplete: false
 	};
+	context.branchRankCache.set(cacheKey, rank);
+
+	return rank;
+}
+
+function getPriorityBranchRankCacheKey(nodeId: string, seenNodeIds: Set<string>): string {
+	if (seenNodeIds.size === 0) {
+		return nodeId;
+	}
+
+	return `${nodeId}\0${[...seenNodeIds].sort().join("\0")}`;
 }
 
 function isBetterPriorityBranchRank(nextRank: PriorityBranchRank, currentRank: PriorityBranchRank | null): boolean {
@@ -3885,6 +4191,17 @@ function shouldIgnoreBoardShortcutTarget(target: EventTarget | null): boolean {
 	}
 
 	return target.isContentEditable || Boolean(target.closest("input, select, textarea, [contenteditable='true']"));
+}
+
+function canScrollElementInWheelDirection(element: HTMLElement, event: WheelEvent): boolean {
+	const verticalOverflow = element.scrollHeight > element.clientHeight + 1;
+	const horizontalOverflow = element.scrollWidth > element.clientWidth + 1;
+	const canScrollDown = verticalOverflow && event.deltaY > 0 && element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+	const canScrollUp = verticalOverflow && event.deltaY < 0 && element.scrollTop > 1;
+	const canScrollRight = horizontalOverflow && event.deltaX > 0 && element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+	const canScrollLeft = horizontalOverflow && event.deltaX < 0 && element.scrollLeft > 1;
+
+	return canScrollDown || canScrollUp || canScrollRight || canScrollLeft;
 }
 
 function blurPlacementTypingTarget(target: EventTarget | null): void {
@@ -4222,9 +4539,17 @@ function getHorizontalMirrorBounds(nodes: TechTreeNode[]): HorizontalMirrorBound
 		return { leftEdge: 0, rightEdge: 0 };
 	}
 
+	let leftEdge = Number.POSITIVE_INFINITY;
+	let rightEdge = Number.NEGATIVE_INFINITY;
+
+	for (const node of nodes) {
+		leftEdge = Math.min(leftEdge, node.position.x);
+		rightEdge = Math.max(rightEdge, node.position.x + getMinimumNodeWidth(node));
+	}
+
 	return {
-		leftEdge: Math.min(...nodes.map((node) => node.position.x)),
-		rightEdge: Math.max(...nodes.map((node) => node.position.x + getMinimumNodeWidth(node)))
+		leftEdge,
+		rightEdge
 	};
 }
 
@@ -4295,16 +4620,10 @@ function getQuestViewValidation(board: TechTreeBoard): QuestViewValidation {
 		return { canEnter: false, reason: "Link the goal to a necessary node before quest view." };
 	}
 
-	const questOutgoingByNode = new Map<string, string[]>();
-
-	for (const edge of board.edges) {
-		const outgoing = questOutgoingByNode.get(edge.target) ?? [];
-		outgoing.push(edge.source);
-		questOutgoingByNode.set(edge.target, outgoing);
-	}
+	const nodesReachableFromGoal = getNodesReachableFromGoal(goalNode.id, board.edges);
 
 	for (const necessaryNodeId of necessaryNodeIds) {
-		if (!canReachNode(necessaryNodeId, goalNode.id, questOutgoingByNode)) {
+		if (!nodesReachableFromGoal.has(necessaryNodeId)) {
 			return { canEnter: false, reason: "Every necessary node needs a path to the goal before quest view." };
 		}
 	}
@@ -4312,8 +4631,16 @@ function getQuestViewValidation(board: TechTreeBoard): QuestViewValidation {
 	return { canEnter: true, reason: null };
 }
 
-function canReachNode(sourceId: string, targetId: string, outgoingByNode: Map<string, string[]>): boolean {
-	const pending = [sourceId];
+function getNodesReachableFromGoal(goalNodeId: string, edges: Edge[]): Set<string> {
+	const outgoingByNode = new Map<string, string[]>();
+
+	for (const edge of edges) {
+		const outgoing = outgoingByNode.get(edge.source) ?? [];
+		outgoing.push(edge.target);
+		outgoingByNode.set(edge.source, outgoing);
+	}
+
+	const pending = [goalNodeId];
 	const seen = new Set<string>();
 
 	while (pending.length > 0) {
@@ -4323,15 +4650,11 @@ function canReachNode(sourceId: string, targetId: string, outgoingByNode: Map<st
 			continue;
 		}
 
-		if (nodeId === targetId) {
-			return true;
-		}
-
 		seen.add(nodeId);
 		pending.push(...(outgoingByNode.get(nodeId) ?? []));
 	}
 
-	return false;
+	return seen;
 }
 
 function GripIcon({ className }: { className?: string }) {
@@ -4381,41 +4704,53 @@ function TechTreeEdge({
 			targetX,
 			targetY,
 			targetPosition,
-			borderRadius: 28,
-			offset: 24
+			borderRadius: 18,
+			offset: 10
 		});
+	const useCompletionGradient = data?.useCompletionGradient === true;
+	const edgeStyle = useCompletionGradient
+		? {
+			...style,
+			stroke: `url(#${COMPLETION_EDGE_GRADIENT_ID})`
+		}
+		: style;
+	const edgeMarkerEnd = useCompletionGradient
+		? `url(#${COMPLETION_EDGE_MARKER_ID})`
+		: markerEnd;
 
 	return (
 		<>
 			<BaseEdge
 				id={id}
 				path={edgePath}
-				markerEnd={markerEnd}
-				style={style}
-				interactionWidth={interactionWidth ?? 28}
+				markerEnd={edgeMarkerEnd}
+				style={edgeStyle}
+				interactionWidth={interactionWidth ?? EDGE_BODY_INTERACTION_WIDTH}
 			/>
-			<EdgeToolbar edgeId={id} x={labelX} y={labelY} isVisible={selected && data?.showToolbar === true && !data?.isQuestView}>
-				<div className="tech-tree-edge-toolbar nodrag nowheel">
-					<button
-						type="button"
-						onClick={(event) => {
-							event.stopPropagation();
-							data?.onReverse?.(id);
-						}}
-					>
-						Reverse
-					</button>
-					<button
-						type="button"
-						onClick={(event) => {
-							event.stopPropagation();
-							data?.onDelete?.(id);
-						}}
-					>
-						Remove
-					</button>
-				</div>
-			</EdgeToolbar>
+			{selected && data?.showToolbar === true && !data?.isQuestView ? (
+				<EdgeToolbar edgeId={id} x={labelX} y={labelY} isVisible>
+					<div className="tech-tree-edge-toolbar nodrag nowheel">
+						<button
+							type="button"
+							onClick={(event) => {
+								event.stopPropagation();
+								data?.onReverse?.(id);
+							}}
+						>
+							Reverse
+						</button>
+						<button
+							type="button"
+							onClick={(event) => {
+								event.stopPropagation();
+								data?.onDelete?.(id);
+							}}
+						>
+							Remove
+						</button>
+					</div>
+				</EdgeToolbar>
+			) : null}
 		</>
 	);
 }
@@ -4708,6 +5043,15 @@ function getEdgeVisualStyle(className: string): EdgeVisualStyle {
 	};
 }
 
+function isCompletionEdgeClassName(className: string): boolean {
+	const classTokens = className.split(/\s+/);
+
+	return classTokens.includes(EDGE_CLASSES.complete)
+		|| classTokens.includes(EDGE_CLASSES.necessaryComplete)
+		|| classTokens.includes(EDGE_CLASSES.questDoneToDone)
+		|| classTokens.includes(EDGE_CLASSES.questMediumDoneToDone);
+}
+
 function isAllowedConnectionForNodes(nodes: TechTreeNode[], connection: ConnectionLike): boolean {
 	const source = nodes.find((node) => node.id === connection.source);
 	const target = nodes.find((node) => node.id === connection.target);
@@ -4808,8 +5152,17 @@ function persistChangedNodeDimensions(nodes: TechTreeNode[], changes: NodeChange
 
 	return nodes.map((node) => {
 		const dimensions = changedDimensions.get(node.id);
+
+		if (!dimensions) {
+			return node;
+		}
+
 		const width = getFiniteNumber(dimensions?.width) ?? getFiniteNumber(node.width) ?? getFiniteNumber(node.measured?.width);
 		const height = getFiniteNumber(dimensions?.height) ?? getFiniteNumber(node.height) ?? getFiniteNumber(node.measured?.height);
+
+		if (width === node.width && height === node.height && width === node.measured?.width && height === node.measured?.height) {
+			return node;
+		}
 
 		return {
 			...node,
@@ -4830,22 +5183,46 @@ function persistChangedNodeDimensions(nodes: TechTreeNode[], changes: NodeChange
 }
 
 function mergeChangedNodesIntoBoard(boardNodes: TechTreeNode[], changedNodes: TechTreeNode[], changes: NodeChange<TechTreeNode>[]): TechTreeNode[] {
-	const changedNodesById = new Map(changedNodes.map((node) => [node.id, node]));
-	const removedNodeIds = new Set(changes
-		.filter((change): change is NodeChange<TechTreeNode> & { id: string } => change.type === "remove" && "id" in change)
-		.map((change) => change.id));
+	const changedNodeIds = new Set<string>();
+	const removedNodeIds = new Set<string>();
+
+	for (const change of changes) {
+		const nodeId = getNodeChangeId(change);
+
+		if (!nodeId) {
+			continue;
+		}
+
+		changedNodeIds.add(nodeId);
+
+		if (change.type === "remove") {
+			removedNodeIds.add(nodeId);
+		}
+	}
+
+	const changedNodesById = new Map(changedNodes
+		.filter((node) => changedNodeIds.has(node.id))
+		.map((node) => [node.id, node]));
 	const boardNodeIds = new Set(boardNodes.map((node) => node.id));
 	const nextNodes = boardNodes
 		.filter((node) => !removedNodeIds.has(node.id))
-		.map((node) => changedNodesById.get(node.id) ?? node);
+		.map((node) => changedNodeIds.has(node.id) ? changedNodesById.get(node.id) ?? node : node);
 
 	for (const node of changedNodes) {
-		if (!boardNodeIds.has(node.id) && !removedNodeIds.has(node.id)) {
+		if (changedNodeIds.has(node.id) && !boardNodeIds.has(node.id) && !removedNodeIds.has(node.id)) {
 			nextNodes.push(node);
 		}
 	}
 
 	return nextNodes;
+}
+
+function getNodeChangeId(change: NodeChange<TechTreeNode>): string | null {
+	if ("id" in change && typeof change.id === "string") {
+		return change.id;
+	}
+
+	return change.type === "add" ? change.item.id : null;
 }
 
 function isSameConnection(edge: Edge, connection: ConnectionLike): boolean {
