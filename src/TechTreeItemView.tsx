@@ -134,6 +134,7 @@ export class TechTreeItemView extends TextFileView {
 		const boardPath = this.file && isCanvasPath(this.file.path) ? this.file.path : null;
 		const child = boardPath
 			? React.createElement(TechTreeApp, {
+				app: this.plugin.app,
 				boardPath,
 				manager: this.manager,
 				colorSeries: this.plugin.getSettings().colorSeries,

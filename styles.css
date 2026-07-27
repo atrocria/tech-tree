@@ -24,8 +24,6 @@
 	--tech-tree-progress: #f97316;
 	--tech-tree-done: #74d99f;
 	--tech-tree-edge: #7c8490;
-	--tech-tree-quest: #60a5fa;
-	--tech-tree-quest-soft: #93c5fd;
 	--tech-tree-goal-gradient-start: hsla(186, 33%, 94%, 1);
 	--tech-tree-goal-gradient-end: hsla(216, 58%, 58%, 1);
 	--tech-tree-goal-tree-gradient: linear-gradient(180deg, var(--tech-tree-goal-gradient-start) 0%, var(--tech-tree-goal-gradient-end) 100%);
@@ -216,7 +214,6 @@
 	pointer-events: auto;
 }
 
-.tech-tree-mode-toggle label,
 .tech-tree-placement-cancel-label {
 	box-sizing: border-box;
 	display: inline-flex;
@@ -232,53 +229,13 @@
 	font-size: 13px;
 	font-weight: 650;
 	line-height: 1;
-	cursor: pointer;
+	cursor: default;
 }
 
 .tech-tree-placement-cancel-label {
 	color: var(--tech-tree-progress);
 	cursor: default;
 	white-space: nowrap;
-}
-
-.tech-tree-mode-toggle label span {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.tech-tree-quest-toggle {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 4px;
-}
-
-.tech-tree-quest-toggle__reason {
-	max-width: 220px;
-	color: #ff6b6b;
-	font-size: 11px;
-	font-weight: 650;
-	line-height: 1.2;
-	text-align: center;
-}
-
-.tech-tree-mode-toggle label.is-disabled {
-	opacity: 0.58;
-	cursor: default;
-}
-
-.tech-tree-mode-toggle input {
-	width: 16px;
-	height: 16px;
-	margin: 0;
-	accent-color: var(--tech-tree-progress);
-	cursor: pointer;
-}
-
-.tech-tree-mode-toggle label.is-disabled input {
-	cursor: default;
 }
 
 @media (max-width: 700px) {
@@ -290,15 +247,6 @@
 		transform: none;
 	}
 
-	.tech-tree-quest-toggle {
-		min-width: 0;
-		align-items: flex-start;
-	}
-
-	.tech-tree-quest-toggle__reason {
-		max-width: 100%;
-		text-align: left;
-	}
 }
 
 .tech-tree-board-toolbar {
@@ -331,8 +279,8 @@
 
 .tech-tree-focus-mode-button:hover,
 .tech-tree-focus-mode-button:focus-visible {
-	border-color: rgba(96, 165, 250, 0.48);
-	background: rgba(96, 165, 250, 0.14);
+	border-color: rgba(249, 115, 22, 0.48);
+	background: rgba(249, 115, 22, 0.14);
 	outline: none;
 }
 
@@ -376,20 +324,20 @@
 }
 
 .react-flow__selection {
-	border: 1px solid rgba(96, 165, 250, 0.9);
-	background: rgba(96, 165, 250, 0.12);
+	border: 1px solid rgba(249, 115, 22, 0.9);
+	background: rgba(249, 115, 22, 0.12);
 }
 
 .react-flow__nodesselection-rect {
-	border: 1px solid rgba(96, 165, 250, 0.85);
-	background: rgba(96, 165, 250, 0.08);
+	border: 1px solid rgba(249, 115, 22, 0.85);
+	background: rgba(249, 115, 22, 0.08);
 }
 
 .tech-tree-drag-selection {
 	position: absolute;
 	z-index: 18;
-	border: 1px solid rgba(96, 165, 250, 0.9);
-	background: rgba(96, 165, 250, 0.12);
+	border: 1px solid rgba(249, 115, 22, 0.9);
+	background: rgba(249, 115, 22, 0.12);
 	pointer-events: none;
 }
 
@@ -479,17 +427,6 @@
 /* Edge body scenarios. Arrow-head colors are configured in EDGE_MARKER_COLORS in src/TechTreeView.tsx. */
 .react-flow__edge.tech-tree-edge.is-progress .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-complete-pending .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-undone-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-chain .react-flow__edge-path {
 	stroke-width: var(--tech-tree-dotted-line-width);
@@ -499,7 +436,6 @@
 }
 
 .react-flow__edge.tech-tree-edge.is-progress .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-path .react-flow__edge-path,
 .react-flow__edge.tech-tree-edge.is-necessary-chain .react-flow__edge-path {
 	stroke: var(--tech-tree-edge);
@@ -507,31 +443,6 @@
 
 .react-flow__edge.tech-tree-edge.is-complete-pending .react-flow__edge-path {
 	stroke: var(--tech-tree-edge);
-}
-
-.react-flow__edge.tech-tree-edge.is-quest-done-to-undone .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-locked-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-undone-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-goal-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-path .react-flow__edge-path {
-	stroke: var(--tech-tree-edge);
-}
-
-.react-flow__edge.tech-tree-edge.is-quest-active-path .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-undone .react-flow__edge-path {
-	stroke: var(--tech-tree-quest);
-}
-
-.react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-necessary-complete .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-done-to-done .react-flow__edge-path,
-.react-flow__edge.tech-tree-edge.is-quest-medium-done-to-done .react-flow__edge-path {
-	stroke: var(--tech-tree-done);
-	stroke-width: var(--tech-tree-dotted-line-width);
-	stroke-dasharray: none;
-	stroke-linecap: round;
-	opacity: 1;
 }
 
 .react-flow__edge.tech-tree-edge.is-necessary-path {
@@ -542,8 +453,9 @@
 	z-index: 4000;
 }
 
-.react-flow__edge.tech-tree-edge.is-necessary-complete {
-	z-index: 6000;
+.react-flow__edge.tech-tree-edge.is-necessary-complete,
+.react-flow__edge.tech-tree-edge.is-info-complete {
+	z-index: 8000;
 }
 
 .react-flow__edge.tech-tree-edge.is-priority-path {
@@ -554,6 +466,17 @@
 	stroke: var(--tech-tree-progress);
 	stroke-width: 4;
 	stroke-dasharray: var(--tech-tree-dotted-edge-pattern);
+	stroke-linecap: round;
+	opacity: 1;
+}
+
+.react-flow__edge.tech-tree-edge.is-complete .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-necessary-complete .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-undone-to-done .react-flow__edge-path,
+.react-flow__edge.tech-tree-edge.is-info-complete .react-flow__edge-path {
+	stroke: var(--tech-tree-done);
+	stroke-width: var(--tech-tree-dotted-line-width);
+	stroke-dasharray: none;
 	stroke-linecap: round;
 	opacity: 1;
 }
@@ -701,9 +624,9 @@
 	width: 34px;
 	height: clamp(132px, calc(100% - 54px), 340px);
 	padding: 8px 0;
-	border: 1px solid rgba(255, 255, 255, 0.12);
+	border: 1px solid #3b424c;
 	border-radius: 8px;
-	background: rgba(36, 40, 46, 0.92);
+	background: #24282e;
 	color: var(--tech-tree-muted-text);
 	box-shadow: none;
 	cursor: default;
@@ -736,7 +659,7 @@
 	width: 164px;
 	height: 18px;
 	margin: 0;
-	accent-color: var(--tech-tree-quest);
+	accent-color: var(--tech-tree-progress);
 	background: transparent;
 	cursor: pointer;
 	transform: translate(-50%, -50%) rotate(-90deg);
@@ -744,7 +667,7 @@
 }
 
 .tech-tree-zoom-slider input[type="range"]:focus-visible {
-	outline: 2px solid rgba(96, 165, 250, 0.52);
+	outline: 2px solid #f97316;
 	outline-offset: 3px;
 }
 
@@ -756,9 +679,9 @@
 	width: 34px;
 	height: 34px;
 	padding: 0;
-	border: 1px solid rgba(255, 255, 255, 0.14);
+	border: 1px solid #3b424c;
 	border-radius: 8px;
-	background: rgba(36, 40, 46, 0.92);
+	background: #24282e;
 	color: var(--tech-tree-card-text);
 	box-shadow: none;
 	cursor: pointer;
@@ -773,9 +696,9 @@
 	width: 34px;
 	height: 34px;
 	padding: 0;
-	border: 1px solid rgba(255, 255, 255, 0.14);
+	border: 1px solid #3b424c;
 	border-radius: 8px;
-	background: rgba(36, 40, 46, 0.92);
+	background: #24282e;
 	color: var(--tech-tree-card-text);
 	box-shadow: none;
 	cursor: pointer;
@@ -790,13 +713,13 @@
 	height: 3px;
 	border-radius: 999px;
 	background: var(--tech-tree-progress);
-	box-shadow: 0 0 5px rgba(249, 115, 22, 0.95), 0 0 10px rgba(249, 115, 22, 0.42);
+	box-shadow: none;
 	pointer-events: none;
 }
 
 .tech-tree-sticky-note-toggle.is-active {
-	border-color: rgba(249, 115, 22, 0.62);
-	background: rgba(249, 115, 22, 0.16);
+	border-color: #c65d19;
+	background: #432819;
 	color: var(--tech-tree-progress);
 }
 
@@ -804,16 +727,16 @@
 .tech-tree-fit-view-button:focus-visible,
 .tech-tree-sticky-note-toggle:hover,
 .tech-tree-sticky-note-toggle:focus-visible {
-	border-color: rgba(96, 165, 250, 0.48);
-	background: rgba(96, 165, 250, 0.14);
+	border-color: #59616d;
+	background: #30353d;
 	color: var(--tech-tree-card-text);
 	outline: none;
 }
 
 .tech-tree-sticky-note-toggle.is-active:hover,
 .tech-tree-sticky-note-toggle.is-active:focus-visible {
-	border-color: rgba(249, 115, 22, 0.74);
-	background: rgba(249, 115, 22, 0.22);
+	border-color: #f97316;
+	background: #51301c;
 	color: var(--tech-tree-progress);
 }
 
@@ -830,35 +753,35 @@
 	z-index: 24;
 	display: flex;
 	flex-direction: column;
-	width: min(300px, calc(100% - 24px));
-	height: min(320px, calc(100% - 24px));
+	width: min(320px, calc(100% - 24px));
+	height: min(340px, calc(100% - 24px));
 	min-height: 220px;
-	border: 1px solid rgba(255, 255, 255, 0.12);
-	border-radius: 8px;
-	background: #161a20;
+	border: 1px solid #343b45;
+	border-radius: 10px;
+	background: #15191f;
 	color: #f2f5f8;
-	box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
 	overflow: hidden;
 	pointer-events: auto;
 	contain: layout paint;
 }
 
 .tech-tree-sticky-note.is-dragging {
-	box-shadow: 0 22px 54px rgba(0, 0, 0, 0.46);
+	box-shadow: 0 16px 34px rgba(0, 0, 0, 0.4);
 }
 
 .tech-tree-sticky-note__header {
 	display: flex;
-	flex: 0 0 34px;
+	flex: 0 0 38px;
 	align-items: center;
-	gap: 8px;
+	gap: 9px;
 	min-width: 0;
-	padding: 0 10px;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	padding: 0 9px;
+	border-bottom: 1px solid #343b45;
 	background: #20252d;
-	color: #c8d0dc;
-	font-size: 12px;
-	font-weight: 650;
+	color: #e5eaf0;
+	font-size: 12.5px;
+	font-weight: 600;
 	line-height: 1;
 	cursor: grab;
 	user-select: none;
@@ -869,44 +792,58 @@
 	cursor: grabbing;
 }
 
-.tech-tree-sticky-note__grip {
+.tech-tree-sticky-note__add-task {
+	display: inline-flex;
 	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	margin: 0;
+	padding: 2px;
+	border: 1px solid #424a55;
+	border-radius: 6px;
+	background: #292f38;
+	color: #d2d8e0;
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.tech-tree-sticky-note__add-task:hover,
+.tech-tree-sticky-note__add-task:focus-visible {
+	border-color: #f97316;
+	background: #343b45;
+	color: var(--tech-tree-progress);
+	outline: none;
+	box-shadow: none;
+}
+
+.tech-tree-sticky-note__add-task svg {
 	width: 18px;
 	height: 18px;
-	color: rgba(200, 208, 220, 0.5);
 }
 
 .tech-tree-sticky-note__header span {
+	flex: 1 1 auto;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.tech-tree-sticky-note__textarea {
+.tech-tree-sticky-note__preview {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
-	padding: 12px;
-	border: 0;
-	border-radius: 0;
-	background: #12161c;
+	padding: 9px 10px;
+	background: #15191f;
 	color: #edf2f7;
 	font-family: var(--font-text);
 	font-size: 13px;
 	line-height: 1.45;
-	resize: none;
-	outline: none;
-	white-space: pre-wrap;
+	overflow: auto;
 	overflow-wrap: anywhere;
-}
-
-.tech-tree-sticky-note__textarea::placeholder {
-	color: rgba(165, 173, 186, 0.68);
-}
-
-.tech-tree-sticky-note__textarea:focus {
-	background: #10141a;
-	box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.26);
+	cursor: text;
+	user-select: text;
 }
 
 .react-flow__minimap {
@@ -944,39 +881,6 @@
 	z-index: 2;
 }
 
-.tech-tree-node.is-locked {
-	opacity: 1;
-	cursor: default;
-}
-
-.tech-tree-node.is-locked::after {
-	content: "";
-	position: absolute;
-	inset: 0;
-	z-index: 3;
-	border-radius: inherit;
-	background: rgba(17, 19, 24, 0.28);
-	pointer-events: none;
-}
-
-.tech-tree-node.is-locked > :not(.tech-tree-node__lock) {
-	opacity: 0.62;
-}
-
-.tech-tree-node.is-locked .tech-tree-node__lock {
-	opacity: 1;
-	z-index: 20;
-}
-
-.tech-tree-node.is-locked .react-flow__handle,
-.tech-tree-node.is-locked .tech-tree-node__done,
-.tech-tree-node.is-locked .tech-tree-node__priority,
-.tech-tree-node.is-locked .tech-tree-node__priority-order,
-.tech-tree-node.is-locked .tech-tree-note,
-.tech-tree-node.is-locked .tech-tree-node__resize-handle {
-	pointer-events: none;
-}
-
 .tech-tree-node:hover {
 	background: var(--tech-tree-node-fill);
 }
@@ -1002,7 +906,7 @@
 	background: transparent !important;
 	background-color: transparent !important;
 	background-image: none !important;
-	color: var(--tech-tree-quest);
+	color: var(--tech-tree-progress);
 	font-size: 13px;
 	font-weight: 650;
 	line-height: 1.2;
@@ -1017,14 +921,9 @@
 .tech-tree-node__board-link:focus-visible {
 	background: transparent !important;
 	background-color: transparent !important;
-	color: #93c5fd;
+	color: #fb923c;
 	outline: none;
 	box-shadow: none !important;
-}
-
-.tech-tree-node.is-locked:hover {
-	--tech-tree-node-fill: var(--tech-tree-card);
-	background: var(--tech-tree-node-fill);
 }
 
 .tech-tree-node.has-checked-neighbor {
@@ -1037,28 +936,20 @@
 	opacity: 1;
 }
 
-.tech-tree-node.is-priority-quest.is-unlocked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-quest-soft);
+.tech-tree-node.is-priority-info {
+	--tech-tree-node-border-color: transparent;
+	border-color: transparent;
+	border-style: solid;
+}
+
+.tech-tree-node.is-priority-info.is-info-branch-complete {
+	--tech-tree-node-border-color: var(--tech-tree-done);
 	border-color: var(--tech-tree-node-border-color);
 	border-style: dashed;
 	border-width: var(--tech-tree-dotted-line-width);
 }
 
-.tech-tree-node.is-priority-quest.is-locked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-quest-soft);
-	border-color: var(--tech-tree-node-border-color);
-	border-style: dashed;
-	border-width: var(--tech-tree-dotted-line-width);
-}
-
-.tech-tree-node.is-priority-quest.is-locked.has-quest-prerequisite:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-edge);
-	border-color: var(--tech-tree-node-border-color);
-	border-style: dashed;
-	border-width: var(--tech-tree-dotted-line-width);
-}
-
-.tech-tree-node.is-priority-necessary.is-unlocked:not(.is-completed) {
+.tech-tree-node.is-priority-necessary:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 	border-color: var(--tech-tree-node-border-color);
 	border-style: dashed;
@@ -1069,7 +960,7 @@
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 }
 
-.tech-tree-node.is-priority-necessary.is-unlocked.has-checked-neighbor:not(.is-completed) {
+.tech-tree-node.is-priority-necessary.has-checked-neighbor:not(.is-completed) {
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 	border-color: var(--tech-tree-node-border-color);
 	border-style: solid;
@@ -1080,22 +971,18 @@
 	--tech-tree-node-border-color: var(--tech-tree-progress);
 }
 
-.tech-tree-node.is-priority-necessary.is-locked:not(.is-completed) {
-	--tech-tree-node-border-color: var(--tech-tree-progress);
-	border-color: var(--tech-tree-node-border-color);
-	border-style: dashed;
-	border-width: var(--tech-tree-dotted-line-width);
-}
-
 .tech-tree-node.is-priority-goal:not(.is-completed) {
 	--tech-tree-node-border-color: transparent;
 	border-color: transparent;
 }
 
 .tech-tree-shell.is-board-complete .tech-tree-node.is-completed,
-.tech-tree-shell.is-board-complete .tech-tree-node.is-completed:hover {
+.tech-tree-shell.is-board-complete .tech-tree-node.is-completed:hover,
+.tech-tree-shell.is-board-complete .tech-tree-node.is-priority-info,
+.tech-tree-shell.is-board-complete .tech-tree-node.is-priority-info:hover {
 	--tech-tree-node-border-color: var(--tech-tree-goal-gradient-end);
 	border-color: transparent;
+	border-style: solid;
 	background:
 		linear-gradient(var(--tech-tree-card), var(--tech-tree-card)) padding-box,
 		var(--tech-tree-completion-gradient) border-box;
@@ -1143,11 +1030,6 @@
 .tech-tree-node__drag-handle:active {
 	cursor: grabbing;
 	transform: translateY(1px);
-}
-
-.tech-tree-node.is-locked .tech-tree-node__drag-handle {
-	cursor: grab;
-	pointer-events: all;
 }
 
 .tech-tree-node__drag-icon {
@@ -1214,60 +1096,6 @@
 	transform-origin: 35% 50%;
 }
 
-.tech-tree-node__lock {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 54px;
-	height: 54px;
-	border-radius: 999px;
-	background: rgba(5, 5, 5, 0.42);
-	opacity: 1;
-	pointer-events: none;
-	transform: translate(-50%, -50%);
-	z-index: 12;
-}
-
-.tech-tree-node__lock span {
-	position: relative;
-	display: block;
-	width: 22px;
-	height: 17px;
-	margin-top: 8px;
-	border-radius: 5px;
-	background: #050505;
-}
-
-.tech-tree-node__lock span::before {
-	content: "";
-	position: absolute;
-	left: 50%;
-	top: -13px;
-	width: 14px;
-	height: 15px;
-	border: 4px solid #050505;
-	border-bottom: 0;
-	border-radius: 16px 16px 0 0;
-	box-sizing: border-box;
-	transform: translateX(-50%);
-}
-
-.tech-tree-node__lock span::after {
-	content: "";
-	position: absolute;
-	left: 50%;
-	top: 6px;
-	width: 8px;
-	height: 10px;
-	background:
-		radial-gradient(circle at 50% 3px, #fff 0 3px, transparent 3.5px),
-		linear-gradient(#fff, #fff) center 6px / 4px 6px no-repeat;
-	transform: translateX(-50%);
-}
-
 .tech-tree-note {
 	flex: 1;
 	width: 100%;
@@ -1285,6 +1113,151 @@
 	user-select: text;
 }
 
+.tech-tree-note__preview {
+	min-height: 100%;
+	color: inherit;
+	cursor: text;
+	user-select: text;
+}
+
+.tech-tree-markdown-field {
+	--checkbox-color: var(--tech-tree-progress);
+	--checkbox-color-hover: #fb923c;
+	--tech-tree-list-gap: 10px;
+	--tech-tree-list-marker-width: var(--checkbox-size, 18px);
+	display: block;
+	min-height: 100%;
+	color: inherit;
+	font-family: inherit;
+	font-size: inherit;
+	font-weight: inherit;
+	line-height: inherit;
+	cursor: text;
+}
+
+.tech-tree-markdown-field__preview,
+.tech-tree-markdown-field__source {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	color: inherit;
+	font-family: inherit;
+	font-size: inherit;
+	font-style: inherit;
+	font-weight: inherit;
+	letter-spacing: inherit;
+	line-height: inherit;
+}
+
+.tech-tree-markdown-field__preview {
+	min-height: 1lh;
+	overflow-wrap: anywhere;
+	cursor: text;
+	user-select: text;
+}
+
+.tech-tree-markdown-field__preview.is-empty::before {
+	content: "\00a0";
+}
+
+.tech-tree-markdown-field__preview.is-placeholder::before {
+	content: attr(data-placeholder);
+	color: rgba(165, 173, 186, 0.68);
+	pointer-events: none;
+}
+
+.tech-tree-markdown-field__preview > :first-child,
+.tech-tree-markdown-field__preview > :last-child,
+.tech-tree-markdown-field__preview p,
+.tech-tree-markdown-field__preview ul,
+.tech-tree-markdown-field__preview ol {
+	margin-block: 0;
+}
+
+.tech-tree-markdown-field__preview ol {
+	padding-inline-start: calc(var(--tech-tree-list-marker-width) + var(--tech-tree-list-gap));
+}
+
+.tech-tree-markdown-field__preview ul {
+	margin-inline: 0;
+	padding-inline-start: 0;
+	list-style: none;
+}
+
+.tech-tree-markdown-field__preview li {
+	min-height: 1lh;
+	margin: 0;
+	font-size: inherit;
+	line-height: inherit;
+}
+
+.tech-tree-markdown-field__preview ul > li:not(.task-list-item) {
+	position: relative;
+	padding-inline-start: calc(var(--tech-tree-list-marker-width) + var(--tech-tree-list-gap));
+}
+
+.tech-tree-markdown-field__preview ul > li:not(.task-list-item)::before {
+	position: absolute;
+	inset-inline-start: 0;
+	top: 0;
+	width: var(--tech-tree-list-marker-width);
+	height: 1lh;
+	background: radial-gradient(circle, currentColor 0 2px, transparent 2.5px);
+	color: var(--text-muted);
+	content: "";
+}
+
+.tech-tree-markdown-field__preview li.task-list-item {
+	display: flex !important;
+	align-items: center;
+	gap: 0 !important;
+	margin-inline-start: 0;
+	padding-inline-start: 0;
+}
+
+.tech-tree-markdown-field__preview li.task-list-item input[type="checkbox"] {
+	flex: 0 0 auto;
+	margin: 0 var(--tech-tree-list-gap) 0 0 !important;
+	transform: none;
+}
+
+.tech-tree-sticky-note__preview .tech-tree-markdown-field__preview li.task-list-item {
+	flex-wrap: wrap;
+}
+
+.tech-tree-sticky-note__preview .tech-tree-markdown-field__preview li.task-list-item > ul {
+	flex: 0 0 100%;
+	width: 100%;
+	margin: 0 !important;
+	padding-inline-start: 0 !important;
+}
+
+.tech-tree-markdown-field__source {
+	display: block;
+	height: auto;
+	min-height: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	appearance: none;
+	background: transparent;
+	field-sizing: content;
+	overflow: hidden;
+	resize: none;
+	outline: none;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.tech-tree-markdown-field__source:focus {
+	border: 0;
+	background: transparent;
+	outline: none;
+	box-shadow: none;
+}
+
 .tech-tree-node__body {
 	display: flex;
 	flex: 1;
@@ -1294,10 +1267,6 @@
 	padding-right: 28px;
 	padding-bottom: 8px;
 	overflow: hidden;
-}
-
-.tech-tree-node.is-locked .tech-tree-note {
-	cursor: default;
 }
 
 .tech-tree-node__priority {
@@ -1311,7 +1280,7 @@
 	max-width: 100%;
 	height: 32px;
 	padding: 0 28px 0 12px;
-	border: 2px solid rgba(147, 197, 253, 0.24);
+	border: 2px solid rgba(255, 255, 255, 0.16);
 	border-radius: 8px;
 	background-color: rgba(17, 24, 39, 0.72);
 	color: var(--tech-tree-card-text);
@@ -1322,9 +1291,9 @@
 }
 
 .tech-tree-node__priority select:focus-visible {
-	border-color: var(--tech-tree-quest);
+	border-color: var(--tech-tree-progress);
 	outline: none;
-	box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
+	box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.22);
 }
 
 .tech-tree-node__priority select option {
@@ -1333,7 +1302,7 @@
 }
 
 .tech-tree-node__priority select option:checked {
-	background: #34475f;
+	background: #3a3029;
 	color: #ffffff;
 }
 

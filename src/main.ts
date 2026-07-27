@@ -8,6 +8,7 @@ import {
 	TFolder,
 	type App,
 	type Menu,
+	type ViewState,
 	type WorkspaceLeaf
 } from "obsidian";
 import {
@@ -31,7 +32,7 @@ type TechTreeBoardMode = "tech-tree" | "canvas";
 
 export default class TechTreePlugin extends Plugin {
 	private manager!: TechTreeManager;
-	private boardModes = new Map<string, TechTreeBoardMode>();
+	private boardModes = new WeakMap<WorkspaceLeaf, Map<string, TechTreeBoardMode>>();
 	private pluginSettings: TechTreeSettings = { ...DEFAULT_TECH_TREE_SETTINGS };
 	private settingsListeners = new Set<() => void>();
 
@@ -115,8 +116,13 @@ export default class TechTreePlugin extends Plugin {
 		);
 	}
 
+	unload(): void {
+		super.unload();
+		void this.restoreCanvasViewsForUnload();
+	}
+
 	onunload() {
-		this.boardModes.clear();
+		this.boardModes = new WeakMap();
 		this.settingsListeners.clear();
 		void this.manager.dispose();
 	}
@@ -166,7 +172,9 @@ export default class TechTreePlugin extends Plugin {
 			return;
 		}
 
-		const targetLeaf = leaf ?? this.findOpenBoardLeaf(path) ?? this.app.workspace.getLeaf("tab");
+		const targetLeaf = leaf
+			?? this.findOpenBoardLeaf(path)
+			?? this.app.workspace.getLeaf("tab");
 		this.setBoardMode(targetLeaf, path, "tech-tree");
 
 		await targetLeaf.setViewState({
@@ -234,6 +242,46 @@ export default class TechTreePlugin extends Plugin {
 		return boardLeaf;
 	}
 
+	private async detachLeafSafely(leaf: WorkspaceLeaf): Promise<void> {
+		try {
+			await Promise.resolve(leaf.detach());
+		} catch (error) {
+			console.error("Failed to detach duplicate tech tree view", error);
+		}
+	}
+
+	private async restoreCanvasViewsForUnload(): Promise<void> {
+		await Promise.all(this.app.workspace
+			.getLeavesOfType(TECH_TREE_VIEW_TYPE)
+			.map((leaf) => this.restoreCanvasViewForUnload(leaf)));
+	}
+
+	private async restoreCanvasViewForUnload(leaf: WorkspaceLeaf): Promise<void> {
+		const state = leaf.view.getState();
+		const file = getViewStateFile(state);
+
+		if (!file || !isCanvasPath(file)) {
+			await this.detachLeafSafely(leaf);
+			return;
+		}
+
+		this.setBoardMode(leaf, file, "canvas");
+
+		try {
+			await leaf.setViewState(
+				{
+					type: CANVAS_VIEW_TYPE,
+					state: { ...state, file },
+					popstate: true
+				} as ViewState,
+				{ focus: false }
+			);
+		} catch (error) {
+			console.error("Failed to restore canvas view for tech tree", error);
+			await this.detachLeafSafely(leaf);
+		}
+	}
+
 	private updateRenamedViews(newPath: string, oldPath: string): void {
 		this.app.workspace.getLeavesOfType(TECH_TREE_VIEW_TYPE).forEach((leaf) => {
 			const view = leaf.view;
@@ -267,11 +315,13 @@ export default class TechTreePlugin extends Plugin {
 	}
 
 	private getBoardMode(leaf: WorkspaceLeaf, path: string): TechTreeBoardMode | undefined {
-		return this.boardModes.get(getBoardModeKey(leaf, path));
+		return this.boardModes.get(leaf)?.get(path);
 	}
 
 	private setBoardMode(leaf: WorkspaceLeaf, path: string, mode: TechTreeBoardMode): void {
-		this.boardModes.set(getBoardModeKey(leaf, path), mode);
+		const leafModes = this.boardModes.get(leaf) ?? new Map<string, TechTreeBoardMode>();
+		leafModes.set(path, mode);
+		this.boardModes.set(leaf, leafModes);
 	}
 
 	private async loadSettings(): Promise<void> {
@@ -329,16 +379,13 @@ class TechTreeSettingsTab extends PluginSettingTab {
 	}
 }
 
-function getBoardModeKey(leaf: WorkspaceLeaf, path: string): string {
-	return `${getLeafId(leaf) ?? "path"}:${path}`;
-}
-
-function getLeafId(leaf: WorkspaceLeaf): string | undefined {
-	return (leaf as WorkspaceLeaf & { id?: string }).id;
-}
-
 function getPluginDataRecord(data: unknown): Record<string, unknown> {
 	return typeof data === "object" && data !== null && !Array.isArray(data)
 		? data as Record<string, unknown>
 		: {};
+}
+
+function getViewStateFile(state: unknown): string | null {
+	const record = getPluginDataRecord(state);
+	return typeof record.file === "string" ? record.file : null;
 }

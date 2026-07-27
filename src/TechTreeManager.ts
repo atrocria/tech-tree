@@ -1,6 +1,6 @@
 import { Notice, TFile, type App, type TFolder } from "obsidian";
 import type { Edge, XYPosition } from "@xyflow/react";
-import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressState, TechTreeStatusKind, TechTreeStickyNote } from "./types";
+import type { TechTreeBoard, TechTreeNode, TechTreePriority, TechTreeProgressState, TechTreeStickyNote } from "./types";
 
 type CanvasSide = "top" | "right" | "bottom" | "left";
 
@@ -61,7 +61,6 @@ const SAVE_DELAY_MS = 250;
 const BOARD_FILE_INSPECTION_CONCURRENCY = 8;
 const BOARD_PATH_METADATA_KEY = "board";
 const CONNECTIONS_METADATA_KEY = "connections";
-const QUEST_VIEW_METADATA_KEY = "quest view";
 const PRIORITY_ORDER_METADATA_KEY = "priority order";
 const MIN_PRIORITY_ORDER = 0;
 const MAX_PRIORITY_ORDER = 10;
@@ -71,22 +70,16 @@ const DEFAULT_STICKY_NOTE: TechTreeStickyNote = {
 	y: 96,
 	isOpen: false
 };
-const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY, QUEST_VIEW_METADATA_KEY]);
-const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status", QUEST_VIEW_METADATA_KEY];
+const HIDDEN_METADATA_KEYS = new Set(["priority", PRIORITY_ORDER_METADATA_KEY, "status", BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY]);
+const ORDERED_METADATA_KEYS = ["priority", PRIORITY_ORDER_METADATA_KEY, BOARD_PATH_METADATA_KEY, CONNECTIONS_METADATA_KEY, "status"];
 const METADATA_LINE_PATTERN = /^([a-z][\w -]*):\s*(.*)$/i;
 
-type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "priorityOrder" | "status" | "completed" | "questViewMode"> & {
+type ParsedNodeText = Pick<TechTreeNode["data"], "title" | "visibleText" | "priority" | "priorityOrder" | "completed"> & {
 	boardPath: string | null;
 	connections: TechTreeConnectionMetadata[];
 	hiddenMetadata: Map<string, string>;
 	partial: boolean;
-	statusKind: TechTreeStatusKind;
 	visibleLines: string[];
-};
-
-type ApplyNodeStateOptions = {
-	lockGoalNodes?: boolean;
-	persistStatus?: boolean;
 };
 
 export type CreateTechTreeNodeOptions = {
@@ -203,11 +196,10 @@ export class TechTreeManager {
 		const normalizedGoalBoard = enforceSingleGoalNode(protectedBoard, goalId);
 		const nodes = normalizedGoalBoard.nodes;
 		const edges = normalizeEdgesForBoard(nodes, normalizedGoalBoard.edges);
-		const nodesWithImpliedPriorities = applyEdgeImpliedPriorities(nodes, edges);
-		const normalizedEdges = normalizeEdgesForBoard(nodesWithImpliedPriorities, edges);
-		const nodesWithConnections = canReuseConnectionMetadata(previousBoard, nodesWithImpliedPriorities, normalizedEdges)
-			? nodesWithImpliedPriorities
-			: syncConnectionMetadata(nodesWithImpliedPriorities, normalizedEdges);
+		const normalizedEdges = normalizeEdgesForBoard(nodes, edges);
+		const nodesWithConnections = canReuseConnectionMetadata(previousBoard, nodes, normalizedEdges)
+			? nodes
+			: syncConnectionMetadata(nodes, normalizedEdges);
 		const nextBoard = applyNodeState({
 			...board,
 			path,
@@ -322,7 +314,11 @@ export class TechTreeManager {
 		return board ? stringifyCanvas(boardToCanvas(board, this.sourceCanvases.get(path))) : null;
 	}
 
-	async updateStickyNote(path: string, note: TechTreeStickyNote): Promise<TechTreeStickyNote> {
+	async updateStickyNote(
+		path: string,
+		note: TechTreeStickyNote,
+		notifyListeners = true
+	): Promise<TechTreeStickyNote> {
 		const normalizedNote = normalizeStickyNote(note);
 		const board = this.boards.get(path) ?? await this.loadBoard(path);
 		const nextBoard = {
@@ -332,7 +328,11 @@ export class TechTreeManager {
 		};
 
 		this.boards.set(path, nextBoard);
-		this.notify(path, nextBoard);
+
+		if (notifyListeners) {
+			this.notify(path, nextBoard);
+		}
+
 		this.queueSave(path, nextBoard);
 
 		return cloneStickyNote(normalizedNote);
@@ -683,10 +683,6 @@ export function updateNodeBoardPath(existingText: string, boardPath: string | nu
 		: removeHiddenMetadata(existingText, BOARD_PATH_METADATA_KEY);
 }
 
-export function updateGoalQuestViewMode(existingText: string, enabled: boolean): string {
-	return upsertHiddenMetadata(existingText, QUEST_VIEW_METADATA_KEY, enabled ? "on" : "off");
-}
-
 function createDefaultBoard(path: string): TechTreeBoard {
 	const outcome = createNode(
 		{ x: -520, y: -65 },
@@ -803,15 +799,14 @@ function normalizeBoard(path: string, canvas: CanvasFile): TechTreeBoard {
 		.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)));
 	const metadataEdges = getMetadataEdges(nodes);
 	const edges = canvasEdges.length > 0 ? canvasEdges : metadataEdges;
-	const nodesWithImpliedPriorities = applyEdgeImpliedPriorities(nodes, edges);
-	const normalizedEdges = normalizeEdgesForBoard(nodesWithImpliedPriorities, edges);
+	const normalizedEdges = normalizeEdgesForBoard(nodes, edges);
 
 	return applyNodeState({
 		path,
 		name: getBoardName(path),
 		updatedAt: Date.now(),
 		stickyNote,
-		nodes: syncConnectionMetadata(nodesWithImpliedPriorities, normalizedEdges),
+		nodes: syncConnectionMetadata(nodes, normalizedEdges),
 		edges: normalizedEdges
 	});
 }
@@ -896,7 +891,8 @@ function boardToCanvas(board: TechTreeBoard, sourceCanvas = createEmptyCanvas())
 }
 
 function toFlowNode(node: CanvasTextNode): TechTreeNode {
-	const parsed = parseNodeText(node.text);
+	const text = normalizeNodeText(node.text);
+	const parsed = parseNodeText(text);
 	const width = getNumber(node.width, DEFAULT_NODE_WIDTH);
 	const height = normalizeNodeHeight(getNumber(node.height, DEFAULT_NODE_HEIGHT));
 
@@ -914,20 +910,15 @@ function toFlowNode(node: CanvasTextNode): TechTreeNode {
 			height
 		},
 		data: {
-			text: node.text,
+			text,
 			visibleText: parsed.visibleText,
 			title: parsed.title,
 			priority: parsed.priority,
 			priorityOrder: parsed.priorityOrder,
-			status: parsed.status,
-			statusKind: parsed.statusKind,
 			completed: parsed.completed,
-			questViewMode: parsed.questViewMode,
 			boardPath: parsed.boardPath,
-			locked: false,
 			hasCheckedNeighbor: false,
-			hasQuestPrerequisite: false,
-			progressState: getProgressState(parsed, false, false)
+			progressState: getProgressState(parsed, false)
 		}
 	};
 }
@@ -1284,35 +1275,6 @@ function syncConnectionMetadata(nodes: TechTreeNode[], edges: Edge[]): TechTreeN
 	});
 }
 
-function applyEdgeImpliedPriorities(nodes: TechTreeNode[], edges: Edge[]): TechTreeNode[] {
-	const nodesById = new Map(nodes.map((node) => [node.id, node]));
-	const mediumImpactTargets = new Set<string>();
-
-	for (const edge of edges) {
-		const source = nodesById.get(edge.source);
-		const target = nodesById.get(edge.target);
-
-		if (
-			source?.data.priority === "necessary"
-			&& (target?.data.priority === "quest" || target?.data.priority === "medium impact")
-		) {
-			mediumImpactTargets.add(target.id);
-		}
-	}
-
-	return nodes.map((node) => {
-		if (mediumImpactTargets.has(node.id) && node.data.priority === "quest") {
-			return setNodePriority(node, "medium impact");
-		}
-
-		if (!mediumImpactTargets.has(node.id) && node.data.priority === "medium impact") {
-			return setNodePriority(node, "quest");
-		}
-
-		return node;
-	});
-}
-
 function stringifyConnectionMetadata(connections: TechTreeConnectionMetadata[]): string {
 	return connections
 		.map((connection) => `${connection.target}|${connection.sourceSide}|${connection.targetSide}`)
@@ -1342,19 +1304,11 @@ function parseConnectionMetadata(value: string | undefined): TechTreeConnectionM
 		.filter((connection): connection is TechTreeConnectionMetadata => Boolean(connection));
 }
 
-export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOptions = {}): TechTreeBoard {
-	const lockGoalNodes = options.lockGoalNodes ?? true;
-	const persistStatus = options.persistStatus ?? true;
-	const nodesById = new Map(board.nodes.map((node) => [node.id, node]));
+export function applyNodeState(board: TechTreeBoard): TechTreeBoard {
 	const parsedById = new Map(board.nodes.map((node) => [node.id, parseNodeText(node.data.text)]));
-	const incomingEdgesByTarget = new Map<string, Edge[]>();
 	const connectedEdgesByNode = new Map<string, Edge[]>();
 
 	for (const edge of board.edges) {
-		const incoming = incomingEdgesByTarget.get(edge.target) ?? [];
-		incoming.push(edge);
-		incomingEdgesByTarget.set(edge.target, incoming);
-
 		const sourceEdges = connectedEdgesByNode.get(edge.source) ?? [];
 		sourceEdges.push(edge);
 		connectedEdgesByNode.set(edge.source, sourceEdges);
@@ -1364,111 +1318,33 @@ export function applyNodeState(board: TechTreeBoard, options: ApplyNodeStateOpti
 		connectedEdgesByNode.set(edge.target, targetEdges);
 	}
 
-	const lockCache = new Map<string, boolean>();
-	const isLocked = (nodeId: string, seen = new Set<string>()): boolean => {
-		if (lockCache.has(nodeId)) {
-			return lockCache.get(nodeId) ?? false;
-		}
-
-		const parsedNode = parsedById.get(nodeId);
-		const node = nodesById.get(nodeId);
-
-		if (!lockGoalNodes && node?.data.priority === "goal") {
-			lockCache.set(nodeId, false);
-			return false;
-		}
-
-		if (parsedNode?.completed) {
-			lockCache.set(nodeId, false);
-			return false;
-		}
-
-		if (seen.has(nodeId)) {
-			return false;
-		}
-
-		seen.add(nodeId);
-
-		const incomingEdges = incomingEdgesByTarget.get(nodeId) ?? [];
-		const locked = incomingEdges.some((edge) => {
-			const source = nodesById.get(edge.source);
-			const target = nodesById.get(edge.target);
-
-			if (source && target && isNecessaryToNonNecessaryEdge(source, target)) {
-				return false;
-			}
-
-			if (source && target && isMediumImpactToNecessaryEdge(source, target)) {
-				return false;
-			}
-
-			return !source || isLocked(source.id, seen) || !isParsedNodeUnlocked(parsedById.get(source.id));
-		});
-
-		seen.delete(nodeId);
-		lockCache.set(nodeId, locked);
-		return locked;
-	};
-
 	return {
 		...board,
 		nodes: board.nodes.map((node) => {
 			const parsed = parsedById.get(node.id) ?? parseNodeText(node.data.text);
-			const locked = isLocked(node.id);
-			const runtimeStatus = getRuntimeStatus(parsed.completed, locked);
+			const runtimeStatus = parsed.completed ? "done" : "open";
 			const connectedEdges = connectedEdgesByNode.get(node.id) ?? [];
 			const hasCheckedNeighbor = connectedEdges.some((edge) => {
 				const neighborId = edge.source === node.id ? edge.target : edge.source;
 				return Boolean(parsedById.get(neighborId)?.completed);
 			});
-			const incomingEdges = incomingEdgesByTarget.get(node.id) ?? [];
-			const hasQuestPrerequisite = incomingEdges.some((edge) => {
-				const source = nodesById.get(edge.source);
-				return source?.data.priority === "quest";
-			});
-
 			return {
 				...node,
 				data: {
 					...node.data,
-					text: persistStatus ? setParsedHiddenMetadata(parsed, node.data.text, "status", runtimeStatus) : node.data.text,
+					text: setParsedHiddenMetadata(parsed, node.data.text, "status", runtimeStatus),
 					visibleText: parsed.visibleText,
 					title: parsed.title,
 					priority: parsed.priority,
 					priorityOrder: parsed.priorityOrder,
-					status: runtimeStatus,
-					statusKind: getRuntimeStatusKind(runtimeStatus),
 					completed: parsed.completed,
-					questViewMode: parsed.questViewMode,
 					boardPath: parsed.boardPath,
-					locked,
 					hasCheckedNeighbor,
-					hasQuestPrerequisite,
-					progressState: getProgressState(parsed, hasCheckedNeighbor, locked)
+					progressState: getProgressState(parsed, hasCheckedNeighbor)
 				}
 			};
 		})
 	};
-}
-
-function isParsedNodeUnlocked(parsed: ParsedNodeText | undefined): boolean {
-	return Boolean(parsed?.completed);
-}
-
-function getRuntimeStatus(completed: boolean, locked: boolean): string {
-	if (completed) {
-		return "done";
-	}
-
-	return locked ? "locked" : "open";
-}
-
-function getRuntimeStatusKind(status: string): TechTreeStatusKind {
-	return status === "done"
-		? "done"
-		: status === "locked"
-			? "blocked"
-			: "open";
 }
 
 function isAllowedEdge(source: TechTreeNode | undefined, target: TechTreeNode | undefined): boolean {
@@ -1476,22 +1352,7 @@ function isAllowedEdge(source: TechTreeNode | undefined, target: TechTreeNode | 
 }
 
 function isAllowedPriorityEdge(source: TechTreeNode, target: TechTreeNode): boolean {
-	const connectsMediumImpactToGoal = (
-		(source.data.priority === "medium impact" && target.data.priority === "goal")
-		|| (source.data.priority === "goal" && target.data.priority === "medium impact")
-	);
-
-	return target.data.priority !== "goal"
-		&& !connectsMediumImpactToGoal
-		&& !(source.data.priority === "quest" && target.data.priority === "necessary");
-}
-
-function isNecessaryToNonNecessaryEdge(source: TechTreeNode, target: TechTreeNode): boolean {
-	return source.data.priority === "necessary" && target.data.priority !== "necessary";
-}
-
-function isMediumImpactToNecessaryEdge(source: TechTreeNode, target: TechTreeNode): boolean {
-	return source.data.priority === "medium impact" && target.data.priority === "necessary";
+	return target.data.priority !== "goal";
 }
 
 function parseNodeText(text: string): ParsedNodeText {
@@ -1527,18 +1388,14 @@ function parseNodeText(text: string): ParsedNodeText {
 	const normalizedVisibleLines = normalizeVisibleLines(visibleLines.join("\n"));
 	const visibleText = getVisibleTextFromLines(visibleLines);
 	const priority = normalizePriority(metadata.get("priority"));
-	const priorityOrder = normalizePriorityOrder(metadata.get(PRIORITY_ORDER_METADATA_KEY));
-	const rawStatus = metadata.get("status")?.trim();
-	const statusKind = normalizeStatusKind(rawStatus);
-	const questViewMode = normalizeBooleanMetadata(metadata.get(QUEST_VIEW_METADATA_KEY));
-	const completed = rawStatus
-		? statusKind === "done"
-		: checkboxStates.length > 0 && checkboxStates.every(Boolean);
-	const partial = !completed && (
-		statusKind === "in-progress"
-		|| statusKind === "blocked"
-		|| checkboxStates.some(Boolean)
-	);
+	const priorityOrder = priority === "necessary"
+		? normalizePriorityOrder(metadata.get(PRIORITY_ORDER_METADATA_KEY))
+		: MIN_PRIORITY_ORDER;
+	const rawStatus = metadata.get("status")?.trim().toLowerCase();
+	const completed = priority !== "info" && (rawStatus
+		? rawStatus === "done"
+		: checkboxStates.length > 0 && checkboxStates.every(Boolean));
+	const partial = !completed && checkboxStates.some(Boolean);
 
 	return {
 		title: firstContentLine?.replace(/^#+\s*/, "").trim() || "Untitled note",
@@ -1547,10 +1404,7 @@ function parseNodeText(text: string): ParsedNodeText {
 		priorityOrder,
 		connections: parseConnectionMetadata(metadata.get(CONNECTIONS_METADATA_KEY)),
 		hiddenMetadata: metadata,
-		status: rawStatus || (completed ? "done" : "open"),
-		statusKind: completed ? "done" : statusKind,
 		completed,
-		questViewMode,
 		boardPath: normalizeBoardPath(metadata.get(BOARD_PATH_METADATA_KEY)),
 		partial,
 		visibleLines: normalizedVisibleLines
@@ -1568,15 +1422,26 @@ function normalizePriority(value: string | undefined): TechTreePriority {
 		return "goal";
 	}
 
-	if (normalized === "medium impact") {
-		return "medium impact";
+	if (normalized === "info") {
+		return "info";
 	}
 
-	if (normalized === "quest") {
-		return "quest";
+	return "info";
+}
+
+function normalizeNodeText(text: string): string {
+	const parsed = parseNodeText(text);
+	let normalizedText = updateNodePriority(text, parsed.priority);
+
+	if (parsed.priority !== "necessary") {
+		normalizedText = updateNodePriorityOrder(normalizedText, MIN_PRIORITY_ORDER);
 	}
 
-	return "quest";
+	if (parsed.priority === "info") {
+		normalizedText = updateNodeCompletionStatus(normalizedText, false);
+	}
+
+	return normalizedText;
 }
 
 function normalizePriorityOrder(value: string | undefined): number {
@@ -1589,12 +1454,12 @@ function clampPriorityOrder(value: number): number {
 	return Math.min(MAX_PRIORITY_ORDER, Math.max(MIN_PRIORITY_ORDER, Math.trunc(value)));
 }
 
-function getProgressState(parsed: ParsedNodeText, hasIncomingEdges: boolean, locked: boolean): TechTreeProgressState {
+function getProgressState(parsed: ParsedNodeText, hasCheckedNeighbor: boolean): TechTreeProgressState {
 	if (parsed.completed) {
 		return "done";
 	}
 
-	if (parsed.partial || hasIncomingEdges || locked) {
+	if (parsed.partial || hasCheckedNeighbor) {
 		return "partial";
 	}
 
@@ -1624,7 +1489,7 @@ function getBoardNameFromText(text: string): string {
 function stripNodeRuntimeData(node: TechTreeNode): TechTreeNode {
 	const parsed = parseNodeText(node.data.text);
 	const progressState: TechTreeProgressState = node.data.progressState
-		?? getProgressState(parsed, false, node.data.locked);
+		?? getProgressState(parsed, false);
 
 	return {
 		...node,
@@ -1634,14 +1499,9 @@ function stripNodeRuntimeData(node: TechTreeNode): TechTreeNode {
 			title: parsed.title,
 			priority: parsed.priority,
 			priorityOrder: parsed.priorityOrder,
-			status: parsed.status,
-			statusKind: parsed.statusKind,
 			completed: parsed.completed,
-			questViewMode: parsed.questViewMode,
 			boardPath: parsed.boardPath,
-			locked: node.data.locked,
 			hasCheckedNeighbor: node.data.hasCheckedNeighbor,
-			hasQuestPrerequisite: node.data.hasQuestPrerequisite,
 			progressState
 		}
 	};
@@ -1709,12 +1569,9 @@ function setNodePriority(node: TechTreeNode, priority: TechTreePriority): TechTr
 			title: parsed.title,
 			priority: parsed.priority,
 			priorityOrder: parsed.priorityOrder,
-			status: parsed.status,
-			statusKind: parsed.statusKind,
 			completed: parsed.completed,
-			questViewMode: parsed.questViewMode,
 			boardPath: parsed.boardPath,
-			progressState: getProgressState(parsed, node.data.hasCheckedNeighbor, node.data.locked)
+			progressState: getProgressState(parsed, node.data.hasCheckedNeighbor)
 		}
 	};
 }
@@ -1913,28 +1770,6 @@ function parseMetadataLine(line: string): { key: string; value: string } | null 
 		key: match[1].toLowerCase(),
 		value: match[2]?.trim() ?? ""
 	};
-}
-
-function normalizeStatusKind(status: string | undefined): TechTreeStatusKind {
-	const normalized = status?.toLowerCase().trim();
-
-	if (!normalized) {
-		return "open";
-	}
-
-	if (normalized === "done") {
-		return "done";
-	}
-
-	if (normalized === "in-progress") {
-		return "in-progress";
-	}
-
-	if (normalized === "blocked" || normalized === "locked") {
-		return "blocked";
-	}
-
-	return "open";
 }
 
 function normalizeBooleanMetadata(value: string | undefined): boolean {
