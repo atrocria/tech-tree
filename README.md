@@ -5,7 +5,6 @@ Tech Tree is an Obsidian plugin for planning goals as connected canvas boards. I
 <img width="1536" height="864" alt="Tech Tree board screenshot" src="https://github.com/user-attachments/assets/76bb2baf-2cc1-4854-b61c-4364e7c92105" />
 
 Unlike a conventional tech tree or tree graph that usually starts with raw steps and branches forward, Tech Tree works backward from the desired outcome. It treats a goal like something you can reverse engineer: start with the final product, break it into necessary ingredients, then keep decomposing those ingredients into smaller steps. The idea is inspired by first principles thinking, game crafting recipes, and skill trees.
-<img width="1616" height="1030" alt="image" src="https://github.com/user-attachments/assets/056901b3-eed8-41c8-8e22-c4f684900c27" />
 <img width="1915" height="1028" alt="image" src="https://github.com/user-attachments/assets/41c70529-384f-4d5b-ab6a-d9133578de7a" />
 <img width="1906" height="1021" alt="image" src="https://github.com/user-attachments/assets/c92b3fd9-922d-4fa5-8b94-4e70948647db" />
 
